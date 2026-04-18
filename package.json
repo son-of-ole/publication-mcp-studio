@@ -1,0 +1,43 @@
+{
+  "name": "publication-mcp-studio",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "author": "Gordon Olson",
+  "scripts": {
+    "dev": "node scripts/next-runner.mjs dev",
+    "build": "node scripts/next-runner.mjs build",
+    "start": "node scripts/next-runner.mjs start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.3",
+    "@supabase/ssr": "^0.10.0",
+    "@supabase/supabase-js": "^2.87.1",
+    "chart.js": "^4.5.1",
+    "citation-js": "^0.7.22",
+    "clsx": "^2.1.1",
+    "katex": "^0.16.44",
+    "lucide-react": "^0.555.0",
+    "mammoth": "^1.12.0",
+    "marked": "^17.0.5",
+    "next": "16.0.10",
+    "pdf-parse": "^2.4.5",
+    "react": "19.2.0",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/katex": "^0.16.8",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^20.19.22",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "baseline-browser-mapping": "^2.10.17",
+    "eslint": "^9.38.0",
+    "eslint-config-next": "16.0.10",
+    "tailwindcss": "^4.1.17",
+    "typescript": "^5.9.3"
+  }
+}
