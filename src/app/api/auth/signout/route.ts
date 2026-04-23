@@ -1,9 +1,8 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { signOutPublicationAdminSession } from '@/lib/publication-admin'
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabaseClient()
-  await supabase.auth.signOut()
+  await signOutPublicationAdminSession()
 
   return NextResponse.redirect(new URL('/admin/login', request.url), {
     status: 302,

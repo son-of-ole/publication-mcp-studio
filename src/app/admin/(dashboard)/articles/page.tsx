@@ -1,18 +1,22 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { Plus, Edit3 } from 'lucide-react'
 import PublicationAccessPanel from '@/components/publications/PublicationAccessPanel'
 import PublicationAuditPanel from '@/components/publications/PublicationAuditPanel'
 import ProductionReadinessPanel from '@/components/publications/ProductionReadinessPanel'
+import { listPublicationArticles } from '@/lib/publication-service'
 
 export default async function AdminArticlesPage() {
-  const supabase = await createServerSupabaseClient()
-  
-  // Fetch articles
-  const { data: articles, error } = await supabase
-    .from('articles')
-    .select('*')
-    .order('created_at', { ascending: false })
+  let articles: Awaited<ReturnType<typeof listPublicationArticles>> = []
+  let error: Error | null = null
+
+  try {
+    articles = await listPublicationArticles({
+      status: 'all',
+      includeContent: true,
+    })
+  } catch (nextError) {
+    error = nextError instanceof Error ? nextError : new Error('Failed to load articles.')
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden p-8">
@@ -47,7 +51,7 @@ export default async function AdminArticlesPage() {
         <div className="bg-red-50 text-red-600 p-4 rounded-md">
           Error loading articles: {error.message}
         </div>
-      ) : articles?.length === 0 ? (
+      ) : articles.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
           <p className="text-gray-500 mb-4">You don&apos;t have any articles yet.</p>
           <Link
@@ -77,7 +81,7 @@ export default async function AdminArticlesPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {articles?.map((article) => (
+              {articles.map((article) => (
                 <tr key={article.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{article.title}</div>
@@ -91,7 +95,7 @@ export default async function AdminArticlesPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(article.created_at).toLocaleDateString()}
+                    {new Date(article.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <Link

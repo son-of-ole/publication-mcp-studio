@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicationAdminAuthContext, assertPublicationAdminSession } from '@/lib/publication-admin'
 import { recordPublicationAuditEvent } from '@/lib/publication-audit'
 import { PublicationApiError } from '@/lib/publication-errors'
+import { resolvePublicationRouteAuth } from '@/lib/publication-route-auth'
 import { listPublicationArticleVersions, buildPublicationCorsHeaders } from '@/lib/publication-service'
 
 export const runtime = 'nodejs'
@@ -14,15 +14,15 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: buildPublicationCorsHeaders() })
 }
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const user = await assertPublicationAdminSession('view article version history')
+    const auth = await resolvePublicationRouteAuth(request, ['articles:read'], 'view article version history')
     const { identifier } = await context.params
     const result = await listPublicationArticleVersions(identifier)
 
     await recordPublicationAuditEvent({
       action: 'versions.list',
-      auth: createPublicationAdminAuthContext(user.email),
+      auth,
       route: '/api/publications/articles/[identifier]/versions',
       method: 'GET',
       article: {

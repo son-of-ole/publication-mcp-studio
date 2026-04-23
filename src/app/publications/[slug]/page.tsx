@@ -2,30 +2,19 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, FileCode2 } from 'lucide-react'
+import { getPublicationPlatform } from '@publication-platform'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import PublicationHero from '@/components/publications/PublicationHero'
 import PublicationRenderer from '@/components/publications/PublicationRenderer'
 import PublicationTableOfContents from '@/components/publications/PublicationTableOfContents'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { assertPublicationAdminSession } from '@/lib/publication-admin'
 import { extractPublicationHeadings, formatPublicationDate, getPublicationPresentation } from '@/lib/publications'
 
 export const revalidate = 60
 const PUBLIC_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://your-domain.example'
 
 async function getArticleBySlug(slug: string) {
-  const supabase = await createServerSupabaseClient()
-
-  const { data: article, error } = await supabase
-    .from('articles')
-    .select('*')
-    .eq('slug', slug)
-    .single()
-
-  return {
-    supabase,
-    article,
-    error,
-  }
+  return getPublicationPlatform().publicationStore.getArticleByIdentifier(slug)
 }
 
 export async function generateMetadata({
@@ -34,16 +23,16 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>
 }): Promise<Metadata> {
   const { slug } = await params
-  const { article } = await getArticleBySlug(slug)
+  const article = await getArticleBySlug(slug)
 
   if (!article) {
-        return {
+    return {
       title: 'Publication Not Found | Publication MCP Studio',
     }
   }
 
   if (article.status !== 'published') {
-      return {
+    return {
       title: 'Publication Draft | Publication MCP Studio',
       robots: {
         index: false,
@@ -93,14 +82,14 @@ export default async function ArticlePage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-  const { supabase, article, error } = await getArticleBySlug(slug)
+  const article = await getArticleBySlug(slug)
 
-  if (error || !article) {
+  if (!article) {
     return notFound()
   }
 
   if (article.status !== 'published') {
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await assertPublicationAdminSession('view draft publications').catch(() => null)
     if (!user) {
       return notFound()
     }
@@ -112,16 +101,13 @@ export default async function ArticlePage({
     ? formatPublicationDate(presentation.metadata.revised)
     : ''
   const canonical = presentation.metadata.canonicalUrl || `${PUBLIC_SITE_URL}/publications/${article.slug}`
-  const { data: relatedArticles } = await supabase
-    .from('articles')
-    .select('title, slug, created_at, content_markdown')
-    .eq('status', 'published')
-    .neq('slug', article.slug)
-    .order('created_at', { ascending: false })
-    .limit(12)
+  const relatedArticles = (await getPublicationPlatform().publicationStore.listArticles({
+    status: 'published',
+    limit: 12,
+  })).filter((entry) => entry.slug !== article.slug)
 
   const relatedPublications =
-    (relatedArticles ?? [])
+    relatedArticles
       .map((entry) => {
         const relatedPresentation = getPublicationPresentation(entry.title, entry.content_markdown, entry.created_at)
         const sharedTags = relatedPresentation.metadata.tags.filter((tag) =>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Copy, KeyRound, Loader2, PlugZap } from 'lucide-react'
 
 type PublicationAccessInfo = {
@@ -11,6 +11,8 @@ type PublicationAccessInfo = {
   staticTokenConfigured: boolean
   defaultModel: string
   availableScopes: string[]
+  availableSkills: PublicationSkillSummary[]
+  connectorHealth: PublicationConnectorHealth[]
   tokens: PublicationTokenInventory[]
 }
 
@@ -28,12 +30,33 @@ type PublicationTokenInventory = {
   label: string
   token_type: 'signed'
   scopes: string[]
+  profile_id: string | null
+  profile_label: string | null
+  profile_enabled_skill_ids: string[]
+  token_enabled_skill_ids: string[] | null
+  allow_profile_skill_overrides: boolean
   issued_at: string
   expires_at: string
   revoked_at: string | null
   last_used_at: string | null
   last_used_route: string | null
   last_used_method: string | null
+}
+
+type PublicationSkillSummary = {
+  id: string
+  label: string
+  description: string
+  status: 'experimental' | 'active' | 'deprecated' | 'disabled'
+  category: string
+  defaultEnablement: 'off' | 'read-only'
+}
+
+type PublicationConnectorHealth = {
+  connectorId: string
+  status: 'ready' | 'configured' | 'unconfigured' | 'degraded'
+  summary: string
+  configured: boolean
 }
 
 const DEFAULT_INFO: PublicationAccessInfo = {
@@ -44,6 +67,8 @@ const DEFAULT_INFO: PublicationAccessInfo = {
   staticTokenConfigured: false,
   defaultModel: 'openai/gpt-5-mini',
   availableScopes: [],
+  availableSkills: [],
+  connectorHealth: [],
   tokens: [],
 }
 
@@ -54,56 +79,55 @@ export default function PublicationAccessPanel() {
   const [label, setLabel] = useState('Primary MCP Client')
   const [expiresInDays, setExpiresInDays] = useState('365')
   const [selectedScopes, setSelectedScopes] = useState<string[]>(DEFAULT_SCOPES)
+  const [profileLabel, setProfileLabel] = useState('Default Publication Agent')
+  const [profileSkillIds, setProfileSkillIds] = useState<string[]>([])
+  const [restrictTokenSkills, setRestrictTokenSkills] = useState(false)
+  const [tokenSkillIds, setTokenSkillIds] = useState<string[]>([])
+  const [allowProfileSkillOverrides, setAllowProfileSkillOverrides] = useState(false)
   const [issuedToken, setIssuedToken] = useState<PublicationIssuedToken | null>(null)
   const [loadingInfo, setLoadingInfo] = useState(false)
   const [issuingToken, setIssuingToken] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [referenceNow, setReferenceNow] = useState(() => Date.now())
 
-  const mcpConfig = useMemo(() => {
-    if (!info.mcpEndpoint || !issuedToken?.token) {
-      return ''
-    }
-
-    return JSON.stringify(
-      {
-        mcpServers: {
-          'publication-mcp-studio': {
-            type: 'http',
-            url: info.mcpEndpoint,
-            headers: {
-              Authorization: `Bearer ${issuedToken.token}`,
+  const mcpConfig =
+    info.mcpEndpoint && issuedToken?.token
+      ? JSON.stringify(
+          {
+            mcpServers: {
+              'publication-mcp-studio': {
+                type: 'http',
+                url: info.mcpEndpoint,
+                headers: {
+                  Authorization: `Bearer ${issuedToken.token}`,
+                },
+              },
             },
           },
-        },
-      },
-      null,
-      2
-    )
-  }, [info.mcpEndpoint, issuedToken?.token])
+          null,
+          2
+        )
+      : ''
 
-  const tokenWarnings = useMemo(() => {
-    const now = Date.now()
-
-    return info.tokens.reduce(
-      (acc, token) => {
-        if (token.revoked_at) {
-          acc.revoked += 1
-          return acc
-        }
-
-        const expiresAt = new Date(token.expires_at).getTime()
-
-        if (expiresAt <= now) {
-          acc.expired += 1
-        } else if (expiresAt - now <= 7 * 24 * 60 * 60 * 1000) {
-          acc.expiringSoon += 1
-        }
-
+  const tokenWarnings = info.tokens.reduce(
+    (acc, token) => {
+      if (token.revoked_at) {
+        acc.revoked += 1
         return acc
-      },
-      { expiringSoon: 0, expired: 0, revoked: 0 }
-    )
-  }, [info.tokens])
+      }
+
+      const expiresAt = new Date(token.expires_at).getTime()
+
+      if (expiresAt <= referenceNow) {
+        acc.expired += 1
+      } else if (expiresAt - referenceNow <= 7 * 24 * 60 * 60 * 1000) {
+        acc.expiringSoon += 1
+      }
+
+      return acc
+    },
+    { expiringSoon: 0, expired: 0, revoked: 0 }
+  )
 
   const loadInfo = async () => {
     setLoadingInfo(true)
@@ -118,6 +142,7 @@ export default function PublicationAccessPanel() {
       }
 
       setInfo(data)
+      setReferenceNow((prev) => prev + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load publication access info.')
     } finally {
@@ -139,6 +164,10 @@ export default function PublicationAccessPanel() {
           label,
           expiresInDays: Number(expiresInDays),
           scopes: selectedScopes,
+          profileLabel,
+          profileEnabledSkillIds: profileSkillIds,
+          tokenEnabledSkillIds: restrictTokenSkills ? tokenSkillIds : null,
+          allowProfileSkillOverrides,
         }),
       })
       const data = await response.json()
@@ -154,6 +183,7 @@ export default function PublicationAccessPanel() {
         tokens: data.tokenRecord ? [data.tokenRecord, ...prev.tokens] : Array.isArray(data.tokens) ? data.tokens : prev.tokens,
       }))
       setIssuedToken(data.token)
+      setReferenceNow((prev) => prev + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to issue publication token.')
     } finally {
@@ -178,6 +208,7 @@ export default function PublicationAccessPanel() {
         ...prev,
         tokens: prev.tokens.map((token) => (token.id === tokenId ? data.token : token)),
       }))
+      setReferenceNow((prev) => prev + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to revoke publication token.')
     }
@@ -200,6 +231,28 @@ export default function PublicationAccessPanel() {
       prev.includes(scope) ? prev.filter((entry) => entry !== scope) : [...prev, scope]
     )
   }
+
+  const toggleProfileSkill = (skillId: string) => {
+    setProfileSkillIds((prev) => {
+      const next = prev.includes(skillId) ? prev.filter((entry) => entry !== skillId) : [...prev, skillId]
+
+      if (!allowProfileSkillOverrides) {
+        setTokenSkillIds((current) => current.filter((entry) => next.includes(entry)))
+      }
+
+      return next
+    })
+  }
+
+  const toggleTokenSkill = (skillId: string) => {
+    setTokenSkillIds((prev) =>
+      prev.includes(skillId) ? prev.filter((entry) => entry !== skillId) : [...prev, skillId]
+    )
+  }
+
+  const availableTokenSkillIds = allowProfileSkillOverrides
+    ? info.availableSkills.map((skill) => skill.id)
+    : profileSkillIds
 
   return (
     <section className="rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 shadow-sm">
@@ -261,6 +314,44 @@ export default function PublicationAccessPanel() {
                 <div className="mt-2 text-sm text-slate-800">{info.defaultModel}</div>
               </div>
             </div>
+
+            {info.availableSkills.length > 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Installed Skills</div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {info.availableSkills.map((skill) => (
+                    <div key={skill.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-slate-900">{skill.label}</div>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-600">
+                          {skill.status}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">{skill.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {info.connectorHealth.length > 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Connector Readiness</div>
+                <div className="mt-3 space-y-2">
+                  {info.connectorHealth.map((connector) => (
+                    <div key={connector.connectorId} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-medium text-slate-900">{connector.connectorId}</div>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-600">
+                          {connector.status}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">{connector.summary}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             {(tokenWarnings.expiringSoon > 0 || tokenWarnings.expired > 0) ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
@@ -354,6 +445,14 @@ export default function PublicationAccessPanel() {
                                     {scope}
                                   </span>
                                 ))}
+                              </div>
+                              <div className="mt-2 text-[11px] text-slate-500">
+                                Profile: {token.profile_label || 'Unscoped profile'}
+                              </div>
+                              <div className="mt-1 text-[11px] text-slate-500">
+                                Skills: {(token.token_enabled_skill_ids ?? token.profile_enabled_skill_ids).length > 0
+                                  ? (token.token_enabled_skill_ids ?? token.profile_enabled_skill_ids).join(', ')
+                                  : 'Core only'}
                               </div>
                             </td>
                             <td className="px-3 py-3 align-top text-sm text-slate-600">
@@ -449,6 +548,106 @@ export default function PublicationAccessPanel() {
                 })}
               </div>
             </div>
+
+            <label className="mt-4 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Profile Label</label>
+            <input
+              type="text"
+              value={profileLabel}
+              onChange={(event) => setProfileLabel(event.target.value)}
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+              placeholder="Default Publication Agent"
+            />
+
+            <div className="mt-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Profile Skills</div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Skills stay advisory and agent-first. Leave everything off for a core-only token.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {info.availableSkills.map((skill) => {
+                  const selected = profileSkillIds.includes(skill.id)
+
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => toggleProfileSkill(skill.id)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                        selected
+                          ? 'border-cyan-400 bg-cyan-100 text-cyan-900'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                      }`}
+                    >
+                      {skill.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <label className="mt-4 flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <input
+                type="checkbox"
+                checked={restrictTokenSkills}
+                onChange={(event) => setRestrictTokenSkills(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-700 focus:ring-cyan-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-900">Restrict This Token Further</span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">
+                  Leave this off to inherit the full profile skill set.
+                </span>
+              </span>
+            </label>
+
+            <label className="mt-3 flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <input
+                type="checkbox"
+                checked={allowProfileSkillOverrides}
+                onChange={(event) => {
+                  const next = event.target.checked
+                  setAllowProfileSkillOverrides(next)
+                  if (!next) {
+                    setTokenSkillIds((prev) => prev.filter((skillId) => profileSkillIds.includes(skillId)))
+                  }
+                }}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-700 focus:ring-cyan-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-900">Allow Token Overrides</span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">
+                  When enabled, token skill selections may diverge from the profile defaults instead of only narrowing them.
+                </span>
+              </span>
+            </label>
+
+            {restrictTokenSkills ? (
+              <div className="mt-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Token Skill Restrictions</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {info.availableSkills.map((skill) => {
+                    const selectable = availableTokenSkillIds.includes(skill.id)
+                    const selected = tokenSkillIds.includes(skill.id)
+
+                    return (
+                      <button
+                        key={`token-${skill.id}`}
+                        type="button"
+                        disabled={!selectable}
+                        onClick={() => toggleTokenSkill(skill.id)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                          selected
+                            ? 'border-cyan-400 bg-cyan-100 text-cyan-900'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                        } disabled:cursor-not-allowed disabled:opacity-40`}
+                      >
+                        {skill.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             <button
               type="button"

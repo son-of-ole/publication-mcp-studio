@@ -1,17 +1,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import {
+  PUBLICATION_TOKEN_SCOPES,
+  type PublicationTokenScope,
+} from '@publication-platform/token-scopes'
 import { PublicationApiError } from '@/lib/publication-errors'
-
-export const PUBLICATION_TOKEN_SCOPES = [
-  'mcp:connect',
-  'articles:read',
-  'articles:write',
-  'articles:publish',
-  'articles:delete',
-  'agent:generate',
-  'audit:read',
-] as const
-
-export type PublicationTokenScope = (typeof PUBLICATION_TOKEN_SCOPES)[number]
+export { PUBLICATION_TOKEN_SCOPES } from '@publication-platform/token-scopes'
+export type { PublicationTokenScope } from '@publication-platform/token-scopes'
 
 type PublicationTokenPayload = {
   jti: string
@@ -170,6 +164,14 @@ function getPublicationTokenSecrets() {
     .flatMap((value) => (value ?? '').split(','))
     .map((value) => value.trim())
     .filter(Boolean)
+
+  if (
+    secrets.length === 0 &&
+    !process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&
+    !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  ) {
+    secrets.push('publication-mcp-studio-local-secret')
+  }
 
   return [...new Set(secrets)]
 }

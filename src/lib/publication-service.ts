@@ -7,9 +7,15 @@ import {
   type PublicationFrontmatter,
   type PublicationMetadata,
 } from '@/lib/publications'
-import { getPublicationServiceClient } from '@/lib/publication-db'
+import { getPublicationPlatform } from '@publication-platform'
+import type {
+  PublicationArticleRecord,
+  PublicationArticleStatus,
+  PublicationAuthContext,
+} from '@publication-platform/types'
 import { PublicationApiError } from '@/lib/publication-errors'
 import {
+  hasPublicationTokenSecret,
   inspectPublicationAccessToken,
   type PublicationTokenScope,
   verifyPublicationAccessToken,
@@ -18,23 +24,18 @@ import {
   getPublicationTokenInventoryRecord,
   touchPublicationTokenInventoryRecord,
 } from '@/lib/publication-token-registry'
+import { resolvePublicationAuthSkillAccess } from '@/lib/publication-skills'
 import {
   createPublicationArticleVersionSnapshot,
   listPublicationArticleVersions as listPublicationVersionsFromStore,
   restorePublicationArticleVersion as restorePublicationVersionFromStore,
 } from '@/lib/publication-versioning'
 
-export type PublicationArticleStatus = 'draft' | 'published'
-
-export type PublicationArticleRecord = {
-  id: string
-  title: string
-  slug: string
-  content_markdown: string
-  status: PublicationArticleStatus
-  created_at: string
-  updated_at: string
-}
+export type {
+  PublicationArticleRecord,
+  PublicationArticleStatus,
+  PublicationAuthContext,
+} from '@publication-platform/types'
 
 export type PublicationArticleResponse = {
   id: string
@@ -58,6 +59,38 @@ export type PublicationArticleMutationInput = {
   customFrontmatter?: PublicationFrontmatter
 }
 
+export function normalizePublicationArticleMutationInput(raw: unknown): PublicationArticleMutationInput {
+  if (!raw || typeof raw !== 'object') {
+    return {}
+  }
+
+  const input = raw as Record<string, unknown>
+  const contentMarkdownValue =
+    typeof input.contentMarkdown === 'string'
+      ? input.contentMarkdown
+      : typeof input.content_markdown === 'string'
+        ? input.content_markdown
+        : undefined
+  const customFrontmatterValue =
+    input.customFrontmatter && typeof input.customFrontmatter === 'object'
+      ? (input.customFrontmatter as PublicationFrontmatter)
+      : input.custom_frontmatter && typeof input.custom_frontmatter === 'object'
+        ? (input.custom_frontmatter as PublicationFrontmatter)
+        : undefined
+
+  return {
+    title: typeof input.title === 'string' ? input.title : undefined,
+    slug: typeof input.slug === 'string' ? input.slug : undefined,
+    status: input.status === 'draft' || input.status === 'published' ? input.status : undefined,
+    contentMarkdown: contentMarkdownValue,
+    body: typeof input.body === 'string' ? input.body : undefined,
+    metadata: input.metadata && typeof input.metadata === 'object'
+      ? (input.metadata as Partial<PublicationMetadata>)
+      : undefined,
+    customFrontmatter: customFrontmatterValue,
+  }
+}
+
 export type PublicationListOptions = {
   status?: PublicationArticleStatus | 'all'
   search?: string
@@ -65,17 +98,7 @@ export type PublicationListOptions = {
   includeContent?: boolean
 }
 
-export type PublicationAuthContext = {
-  tokenType: 'static' | 'signed'
-  tokenId?: string
-  label: string
-  scopes: Array<PublicationTokenScope | '*'>
-}
-
 const PUBLICATION_API_HEADER = 'x-publication-token'
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
 export function buildPublicationCorsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -94,7 +117,7 @@ export async function assertPublicationApiAuth(
     .map((token) => token.trim())
     .filter(Boolean)
 
-  const signedTokensEnabled = Boolean(process.env.PUBLICATION_API_SECRET?.trim())
+  const signedTokensEnabled = hasPublicationTokenSecret()
 
   if (configuredTokens.length === 0 && !signedTokensEnabled) {
     throw new PublicationApiError(
@@ -141,12 +164,14 @@ export async function assertPublicationApiAuth(
         tokenType: 'static',
         label: 'Static Publication API Token',
         scopes: ['*'],
+        enabledSkillIds: [],
       }
     : {
         tokenType: 'signed',
         tokenId: signedTokenPayload?.jti,
         label: signedTokenPayload?.label || 'Signed Publication Token',
         scopes: signedTokenPayload?.scopes || [],
+        enabledSkillIds: [],
       }
 
   if (authContext.tokenType === 'signed') {
@@ -166,8 +191,24 @@ export async function assertPublicationApiAuth(
 
     authContext.label = tokenRecord.label
     authContext.scopes = tokenRecord.scopes
+    const skillAccess = resolvePublicationAuthSkillAccess({
+      tokenType: 'signed',
+      tokenRecord,
+    })
+    authContext.profileId = skillAccess.profileId
+    authContext.profileLabel = skillAccess.profileLabel
+    authContext.enabledSkillIds = skillAccess.enabledSkillIds
+    authContext.adminVisibility = skillAccess.adminVisibility
 
     await touchPublicationTokenInventoryRecord(tokenRecord.id, new URL(request.url).pathname, request.method)
+  } else {
+    const skillAccess = resolvePublicationAuthSkillAccess({
+      tokenType: 'static',
+    })
+    authContext.profileId = skillAccess.profileId
+    authContext.profileLabel = skillAccess.profileLabel
+    authContext.enabledSkillIds = skillAccess.enabledSkillIds
+    authContext.adminVisibility = skillAccess.adminVisibility
   }
 
   if (!hasRequiredScopes(authContext, requiredScopes)) {
@@ -202,31 +243,13 @@ export function serializePublicationArticle(
 }
 
 export async function listPublicationArticles(options: PublicationListOptions = {}) {
-  const supabase = getPublicationServiceClient()
-  const limit = clampLimit(options.limit)
+  const articles = await getPublicationPlatform().publicationStore.listArticles({
+    status: options.status,
+    search: options.search,
+    limit: clampLimit(options.limit),
+  })
 
-  let query = supabase
-    .from('articles')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit)
-
-  if (options.status && options.status !== 'all') {
-    query = query.eq('status', options.status)
-  }
-
-  if (options.search?.trim()) {
-    const search = options.search.trim()
-    query = query.or(`title.ilike.%${search}%,slug.ilike.%${search}%`)
-  }
-
-  const { data, error } = await query
-
-  if (error) {
-    throw new PublicationApiError(500, 'articles_list_failed', error.message, error)
-  }
-
-  return (data ?? []).map((article) =>
+  return articles.map((article) =>
     serializePublicationArticle(article as PublicationArticleRecord, {
       includeContent: options.includeContent,
     })
@@ -240,13 +263,12 @@ export async function getPublicationArticle(identifier: string, includeContent =
 }
 
 export async function createPublicationArticle(input: PublicationArticleMutationInput, actor?: PublicationAuthContext) {
-  const supabase = getPublicationServiceClient()
   const articleTitle = deriveArticleTitle(undefined, input)
   const contentMarkdown = composeMarkdownForMutation(undefined, input, articleTitle)
   const slug = normalizeRequestedSlug(input.slug, articleTitle)
   const now = new Date().toISOString()
-
-  const payload = {
+  const payload: PublicationArticleRecord = {
+    id: crypto.randomUUID(),
     title: articleTitle,
     slug,
     content_markdown: contentMarkdown,
@@ -255,19 +277,15 @@ export async function createPublicationArticle(input: PublicationArticleMutation
     updated_at: now,
   }
 
-  const { data, error } = await supabase.from('articles').insert(payload).select('*').single()
-
-  if (error) {
-    throw new PublicationApiError(500, 'article_create_failed', error.message, error)
-  }
+  const createdArticle = await getPublicationPlatform().publicationStore.createArticle(payload)
 
   await createPublicationArticleVersionSnapshot({
-    article: data as PublicationArticleRecord,
+    article: createdArticle,
     sourceAction: 'create',
     actor,
   })
 
-  return serializePublicationArticle(data as PublicationArticleRecord)
+  return serializePublicationArticle(createdArticle)
 }
 
 export async function updatePublicationArticle(
@@ -275,7 +293,6 @@ export async function updatePublicationArticle(
   input: PublicationArticleMutationInput,
   actor?: PublicationAuthContext
 ) {
-  const supabase = getPublicationServiceClient()
   const existingArticle = await findPublicationArticle(identifier)
   const nextTitle = deriveArticleTitle(existingArticle, input)
   const contentMarkdown = composeMarkdownForMutation(existingArticle, input, nextTitle)
@@ -288,24 +305,15 @@ export async function updatePublicationArticle(
     updated_at: new Date().toISOString(),
   }
 
-  const { data, error } = await supabase
-    .from('articles')
-    .update(payload)
-    .eq('id', existingArticle.id)
-    .select('*')
-    .single()
-
-  if (error) {
-    throw new PublicationApiError(500, 'article_update_failed', error.message, error)
-  }
+  const updatedArticle = await getPublicationPlatform().publicationStore.updateArticle(existingArticle.id, payload)
 
   await createPublicationArticleVersionSnapshot({
-    article: data as PublicationArticleRecord,
+    article: updatedArticle,
     sourceAction: 'update',
     actor,
   })
 
-  return serializePublicationArticle(data as PublicationArticleRecord)
+  return serializePublicationArticle(updatedArticle)
 }
 
 export async function publishPublicationArticle(identifier: string, actor?: PublicationAuthContext) {
@@ -325,7 +333,6 @@ export async function publishPublicationArticle(identifier: string, actor?: Publ
 }
 
 export async function deletePublicationArticle(identifier: string, actor?: PublicationAuthContext) {
-  const supabase = getPublicationServiceClient()
   const existingArticle = await findPublicationArticle(identifier)
 
   await createPublicationArticleVersionSnapshot({
@@ -334,11 +341,7 @@ export async function deletePublicationArticle(identifier: string, actor?: Publi
     actor,
   })
 
-  const { error } = await supabase.from('articles').delete().eq('id', existingArticle.id)
-
-  if (error) {
-    throw new PublicationApiError(500, 'article_delete_failed', error.message, error)
-  }
+  await getPublicationPlatform().publicationStore.deleteArticle(existingArticle.id)
 
   return {
     deleted: true,
@@ -376,36 +379,19 @@ function clampLimit(limit?: number) {
 }
 
 async function findPublicationArticle(identifier: string) {
-  const supabase = getPublicationServiceClient()
   const cleanIdentifier = identifier.trim()
 
   if (!cleanIdentifier) {
     throw new PublicationApiError(400, 'article_identifier_missing', 'An article identifier or slug is required.')
   }
 
-  if (UUID_PATTERN.test(cleanIdentifier)) {
-    const { data, error } = await supabase.from('articles').select('*').eq('id', cleanIdentifier).maybeSingle()
+  const article = await getPublicationPlatform().publicationStore.getArticleByIdentifier(cleanIdentifier)
 
-    if (error) {
-      throw new PublicationApiError(500, 'article_lookup_failed', error.message, error)
-    }
-
-    if (data) {
-      return data as PublicationArticleRecord
-    }
-  }
-
-  const { data, error } = await supabase.from('articles').select('*').eq('slug', cleanIdentifier).maybeSingle()
-
-  if (error) {
-    throw new PublicationApiError(500, 'article_lookup_failed', error.message, error)
-  }
-
-  if (!data) {
+  if (!article) {
     throw new PublicationApiError(404, 'article_not_found', `No article found for "${cleanIdentifier}".`)
   }
 
-  return data as PublicationArticleRecord
+  return article
 }
 
 function deriveArticleTitle(

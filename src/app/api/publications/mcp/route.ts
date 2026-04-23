@@ -3,9 +3,30 @@ import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 import { generatePublicationDraft } from '@/lib/publication-agent'
 import { recordPublicationAuditEvent } from '@/lib/publication-audit'
+import { buildPublicationDocumentIR } from '@/lib/publication-document-ir'
 import { PublicationApiError } from '@/lib/publication-errors'
+import {
+  exportPublicationDocument,
+  importPublicationDocument,
+} from '@/lib/publication-import-export'
 import { deletePublicationMedia, listPublicationMedia, uploadPublicationMedia } from '@/lib/publication-media'
 import type { PublicationFrontmatter, PublicationFrontmatterValue, PublicationMetadata } from '@/lib/publications'
+import {
+  getPublicationPrompt,
+  listPublicationPresets,
+  listPublicationPrompts,
+  listPublicationVerifiers,
+  runPublicationPreset,
+  verifyPublicationMarkdown,
+} from '@/lib/publication-verifiers'
+import {
+  assertPublicationSkillCapabilityEnabled,
+  getPublicationSkill,
+  getPublicationSkillToolScope,
+  getPublicationSkillWorkflow,
+  listEnabledPublicationSkills,
+  listPublicationSkills,
+} from '@/lib/publication-skills'
 import {
   type PublicationAuthContext,
   assertPublicationApiAuth,
@@ -69,6 +90,19 @@ export const TOOL_DEFINITIONS = [
         },
       },
       required: ['identifier'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_document_ir',
+    description: 'Build the canonical document IR for an article or raw markdown input.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        identifier: { type: 'string' },
+        markdown: { type: 'string' },
+        fallbackTitle: { type: 'string' },
+      },
       additionalProperties: false,
     },
   },
@@ -184,6 +218,124 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'import_document',
+    description: 'Import markdown, text, docx, pdf, or latex into the canonical publication markdown model.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fileName: { type: 'string' },
+        mimeType: { type: 'string' },
+        dataBase64: { type: 'string' },
+        text: { type: 'string' },
+      },
+      required: ['fileName'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'export_document',
+    description: 'Export publication markdown or an existing article into markdown, json, latex, docx, or pdf.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        identifier: { type: 'string' },
+        markdown: { type: 'string' },
+        format: {
+          type: 'string',
+          enum: ['markdown', 'json', 'latex', 'docx', 'pdf'],
+        },
+        fileName: { type: 'string' },
+        fallbackTitle: { type: 'string' },
+      },
+      required: ['format'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'list_skills',
+    description: 'List installed governed publication skills and their metadata.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_skill',
+    description: 'Fetch metadata for a single governed publication skill.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skillId: { type: 'string' },
+      },
+      required: ['skillId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'list_enabled_skills',
+    description: 'List the publication skills enabled for the current token or profile.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'list_verifiers',
+    description: 'List built-in publication verifiers and presets for agent workflows.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'verify_document',
+    description: 'Run a single verifier such as math sanity, Lean, journal structure, or SEO.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        identifier: { type: 'string' },
+        markdown: { type: 'string' },
+        verifierId: { type: 'string' },
+        fallbackTitle: { type: 'string' },
+      },
+      required: ['verifierId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'run_publication_preset',
+    description: 'Run a preset workflow like journal submission, SEO, or formal math review.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        identifier: { type: 'string' },
+        markdown: { type: 'string' },
+        presetId: { type: 'string' },
+        fallbackTitle: { type: 'string' },
+      },
+      required: ['presetId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'run_skill_workflow',
+    description: 'Run a declared skill workflow and return its static manifest plus transparent results.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflowId: { type: 'string' },
+        identifier: { type: 'string' },
+        markdown: { type: 'string' },
+        fallbackTitle: { type: 'string' },
+      },
+      required: ['workflowId'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'generate_publication_draft',
     description:
       'Use the publication agent to draft or revise markdown that matches the publication renderer and block system.',
@@ -252,7 +404,14 @@ export async function GET() {
       resources: [
         'publication://authoring-guide',
         'publication://supported-blocks',
+        'publication://workflow-guide',
+        'publication://verifier-presets',
+        'publication://agent-prompts',
+        'publication://skills',
+        'publication://skills/enabled',
+        'publication://skills/{skillId}',
       ],
+      prompts: listPublicationPrompts().map((prompt) => prompt.name),
     },
     { headers: buildPublicationCorsHeaders() }
   )
@@ -265,7 +424,7 @@ export async function POST(request: NextRequest) {
     const auth =
       method === 'initialize' || method === 'ping'
         ? await assertPublicationApiAuth(request, ['mcp:connect'])
-        : method === 'tools/list' || method === 'resources/list' || method === 'resources/read'
+        : method === 'tools/list' || method === 'resources/list' || method === 'resources/read' || method === 'prompts/list' || method === 'prompts/get'
           ? await assertPublicationApiAuth(request, ['mcp:connect'])
           : method === 'tools/call'
             ? await assertPublicationApiAuth(request, ['mcp:connect'])
@@ -296,6 +455,7 @@ export async function POST(request: NextRequest) {
         capabilities: {
           tools: { listChanged: false },
           resources: { listChanged: false, subscribe: false },
+          prompts: { listChanged: false },
         },
         serverInfo: {
           name: MCP_SERVER_NAME,
@@ -310,7 +470,7 @@ export async function POST(request: NextRequest) {
 
     if (method === 'tools/list') {
       return jsonRpcResult(payload.id ?? null, {
-        tools: TOOL_DEFINITIONS,
+        tools: getVisibleToolDefinitions(auth),
       })
     }
 
@@ -345,37 +505,38 @@ export async function POST(request: NextRequest) {
 
     if (method === 'resources/list') {
       return jsonRpcResult(payload.id ?? null, {
-        resources: [
-          {
-            uri: 'publication://authoring-guide',
-            name: 'Publication Authoring Guide',
-            description: 'Markdown and directive guide for publication system authoring.',
-            mimeType: 'text/markdown',
-          },
-          {
-            uri: 'publication://supported-blocks',
-            name: 'Supported Publication Blocks',
-            description: 'Quick reference for block directives and metadata fields supported by the renderer.',
-            mimeType: 'text/markdown',
-          },
-        ],
+        resources: getVisibleResources(auth),
       })
     }
 
     if (method === 'resources/read') {
       const params = payload.params ?? {}
       const uri = typeof params.uri === 'string' ? params.uri : ''
-      const resource = await readResource(uri)
+      const resource = await readResource(uri, auth)
 
       return jsonRpcResult(payload.id ?? null, {
         contents: [
           {
             uri,
-            mimeType: 'text/markdown',
-            text: resource,
+            mimeType: resource.mimeType,
+            text: resource.text,
           },
         ],
       })
+    }
+
+    if (method === 'prompts/list') {
+      return jsonRpcResult(payload.id ?? null, {
+        prompts: listPublicationPrompts(auth),
+      })
+    }
+
+    if (method === 'prompts/get') {
+      const params = payload.params ?? {}
+      const name = typeof params.name === 'string' ? params.name : ''
+      const args = isRecord(params.arguments) ? params.arguments : {}
+
+      return jsonRpcResult(payload.id ?? null, getPublicationPrompt(name, args, auth))
     }
 
     return jsonRpcError(payload.id ?? null, -32601, `Method "${method}" is not supported by this MCP server.`)
@@ -414,6 +575,12 @@ async function callTool(toolName: string, args: Record<string, unknown>, auth: P
           args.includeContent !== false
         ),
       }
+    case 'get_document_ir': {
+      const markdown = await resolveToolMarkdown(args)
+      return {
+        ir: buildPublicationDocumentIR(markdown, optionalString(args.fallbackTitle) || ''),
+      }
+    }
     case 'create_article':
       return {
         article: await createPublicationArticle({
@@ -432,6 +599,14 @@ async function callTool(toolName: string, args: Record<string, unknown>, auth: P
         articleSlug: optionalString(args.articleSlug),
         limit: typeof args.limit === 'number' ? args.limit : undefined,
       })
+    case 'import_document':
+      return {
+        importResult: await importPublicationDocument({
+          fileName: requiredString(args.fileName, 'fileName'),
+          mimeType: optionalString(args.mimeType),
+          data: resolveImportData(args),
+        }),
+      }
     case 'upload_media':
       return await uploadPublicationMedia({
         articleIdentifier: optionalString(args.articleIdentifier),
@@ -446,6 +621,86 @@ async function callTool(toolName: string, args: Record<string, unknown>, auth: P
       })
     case 'delete_media':
       return await deletePublicationMedia(requiredString(args.path, 'path'))
+    case 'export_document': {
+      const markdown = await resolveToolMarkdown(args)
+      return {
+        exportResult: await exportPublicationDocument({
+          markdown,
+          format: requiredExportFormat(args.format),
+          fileName: optionalString(args.fileName),
+          fallbackTitle: optionalString(args.fallbackTitle),
+        }),
+      }
+    }
+    case 'list_skills':
+      return {
+        skills: listPublicationSkills({ auth }),
+      }
+    case 'get_skill':
+      return {
+        skill: getPublicationSkill(requiredString(args.skillId, 'skillId'), { auth }),
+      }
+    case 'list_enabled_skills':
+      return {
+        skills: listEnabledPublicationSkills(auth),
+      }
+    case 'list_verifiers':
+      return {
+        verifiers: listPublicationVerifiers(auth),
+        presets: listPublicationPresets(auth),
+      }
+    case 'verify_document': {
+      const markdown = await resolveToolMarkdown(args)
+      return {
+        result: await verifyPublicationMarkdown(
+          markdown,
+          requiredString(args.verifierId, 'verifierId'),
+          optionalString(args.fallbackTitle) || '',
+          auth
+        ),
+        ir: buildPublicationDocumentIR(markdown, optionalString(args.fallbackTitle) || ''),
+      }
+    }
+    case 'run_publication_preset': {
+      const markdown = await resolveToolMarkdown(args)
+      return {
+        preset: await runPublicationPreset(
+          markdown,
+          requiredString(args.presetId, 'presetId'),
+          optionalString(args.fallbackTitle) || '',
+          auth
+        ),
+        ir: buildPublicationDocumentIR(markdown, optionalString(args.fallbackTitle) || ''),
+      }
+    }
+    case 'run_skill_workflow': {
+      const workflow = getPublicationSkillWorkflow(requiredString(args.workflowId, 'workflowId'), auth)
+      const markdown = await resolveToolMarkdown(args)
+      const fallbackTitle = optionalString(args.fallbackTitle) || ''
+
+      return {
+        workflow,
+        manifest: workflow.manifest,
+        prompts: workflow.manifest.promptIds.map((promptId) => ({
+          promptId,
+          prompt: getPublicationPrompt(promptId, args, auth),
+        })),
+        resources: workflow.manifest.resourceUris.map((uri) => ({ uri })),
+        verifierResults: await Promise.all(
+          workflow.manifest.verifierIds.map(async (verifierId) => ({
+            verifierId,
+            result: await verifyPublicationMarkdown(markdown, verifierId, fallbackTitle, auth),
+          }))
+        ),
+        presetResults: await Promise.all(
+          workflow.manifest.presetIds.map(async (presetId) => ({
+            presetId,
+            result: await runPublicationPreset(markdown, presetId, fallbackTitle, auth),
+          }))
+        ),
+        ir: buildPublicationDocumentIR(markdown, fallbackTitle),
+      }
+    }
     case 'update_article':
       return {
         article: await updatePublicationArticle(requiredString(args.identifier, 'identifier'), {
@@ -490,13 +745,18 @@ async function callTool(toolName: string, args: Record<string, unknown>, auth: P
   }
 }
 
-async function readResource(uri: string) {
+async function readResource(uri: string, auth: PublicationAuthContext) {
   if (uri === 'publication://authoring-guide') {
-    return readFile(path.join(process.cwd(), 'docs', 'publications-authoring.md'), 'utf8')
+    return {
+      mimeType: 'text/markdown',
+      text: await readFile(path.join(process.cwd(), 'docs', 'publications-authoring.md'), 'utf8'),
+    }
   }
 
   if (uri === 'publication://supported-blocks') {
-    return [
+    return {
+      mimeType: 'text/markdown',
+      text: [
       '# Supported Publication Blocks',
       '',
       '- Frontmatter fields: `title`, `publicationLabel`, `subtitle`, `abstract`, `authors`, `authorProfiles`, `affiliations`, `tags`, `doi`, `journal`, `repositoryUrl`, `repositoryLabel`, `published`, `revised`, `canonicalUrl`, `heroImage`, `heroVideo`, `heroPoster`, `heroCaption`.',
@@ -506,7 +766,100 @@ async function readResource(uri: string) {
       '- Citations: use `[@citationKey]` inline and add `::reference{...}` entries in the document.',
       '- Math: use inline `$...$` and block `$$...$$` KaTeX syntax.',
       '- Tables: use normal GitHub-flavored markdown tables.',
-    ].join('\n')
+    ].join('\n'),
+    }
+  }
+
+  if (uri === 'publication://workflow-guide') {
+    return {
+      mimeType: 'text/markdown',
+      text: await readFile(path.join(process.cwd(), 'docs', 'publications-agent-workflows.md'), 'utf8'),
+    }
+  }
+
+  if (uri === 'publication://verifier-presets') {
+    return {
+      mimeType: 'application/json',
+      text: JSON.stringify(
+        {
+          verifiers: listPublicationVerifiers(auth),
+          presets: listPublicationPresets(auth),
+        },
+        null,
+        2
+      ),
+    }
+  }
+
+  if (uri === 'publication://agent-prompts') {
+    return {
+      mimeType: 'application/json',
+      text: JSON.stringify(
+        {
+          prompts: listPublicationPrompts(auth),
+        },
+        null,
+        2
+      ),
+    }
+  }
+
+  if (uri === 'publication://skills') {
+    return {
+      mimeType: 'application/json',
+      text: JSON.stringify(
+        {
+          skills: listPublicationSkills({ auth }),
+        },
+        null,
+        2
+      ),
+    }
+  }
+
+  if (uri === 'publication://skills/enabled') {
+    return {
+      mimeType: 'application/json',
+      text: JSON.stringify(
+        {
+          skills: listEnabledPublicationSkills(auth),
+        },
+        null,
+        2
+      ),
+    }
+  }
+
+  if (uri.startsWith('publication://skills/')) {
+    const skillId = decodeURIComponent(uri.slice('publication://skills/'.length))
+    assertPublicationSkillCapabilityEnabled(auth, `resource:${uri}`)
+    return {
+      mimeType: 'application/json',
+      text: JSON.stringify(
+        {
+          skill: getPublicationSkill(skillId, { auth }),
+        },
+        null,
+        2
+      ),
+    }
+  }
+
+  if (uri.startsWith('publication://article/') && uri.endsWith('/document-ir')) {
+    const identifier = decodeURIComponent(uri.slice('publication://article/'.length, -'/document-ir'.length))
+    const article = await getPublicationArticle(identifier, true)
+
+    return {
+      mimeType: 'application/json',
+      text: JSON.stringify(
+        {
+          identifier,
+          ir: buildPublicationDocumentIR(article.contentMarkdown || '', article.title),
+        },
+        null,
+        2
+      ),
+    }
   }
 
   throw new PublicationApiError(404, 'resource_not_found', `Resource "${uri}" is not available.`)
@@ -550,6 +903,55 @@ function optionalFrontmatter(value: unknown): PublicationFrontmatter | undefined
   return frontmatter
 }
 
+async function resolveToolMarkdown(args: Record<string, unknown>) {
+  const markdown = optionalString(args.markdown)
+  if (markdown?.trim()) {
+    return markdown
+  }
+
+  const identifier = optionalString(args.identifier)
+  if (!identifier?.trim()) {
+    throw new PublicationApiError(400, 'invalid_arguments', '"markdown" or "identifier" is required.')
+  }
+
+  const article = await getPublicationArticle(identifier, true)
+  if (!article.contentMarkdown) {
+    throw new PublicationApiError(404, 'article_markdown_missing', `No markdown content was found for "${identifier}".`)
+  }
+
+  return article.contentMarkdown
+}
+
+function resolveImportData(args: Record<string, unknown>) {
+  const dataBase64 = optionalString(args.dataBase64)
+  const text = optionalString(args.text)
+
+  if (dataBase64?.trim()) {
+    const normalizedBase64 = dataBase64.includes(',')
+      ? dataBase64.slice(dataBase64.indexOf(',') + 1)
+      : dataBase64
+    return Buffer.from(normalizedBase64, 'base64')
+  }
+
+  if (text !== undefined) {
+    return Buffer.from(text, 'utf8')
+  }
+
+  throw new PublicationApiError(400, 'invalid_arguments', '"dataBase64" or "text" is required.')
+}
+
+function requiredExportFormat(value: unknown) {
+  if (value === 'markdown' || value === 'json' || value === 'latex' || value === 'docx' || value === 'pdf') {
+    return value
+  }
+
+  throw new PublicationApiError(
+    400,
+    'invalid_arguments',
+    '"format" must be one of: markdown, json, latex, docx, pdf.'
+  )
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -573,10 +975,21 @@ function assertToolScope(toolName: string, auth: { scopes: string[] }) {
 }
 
 function getToolScope(toolName: string) {
+  const skillToolScope = getPublicationSkillToolScope(toolName)
+  if (skillToolScope) {
+    return skillToolScope
+  }
+
   switch (toolName) {
     case 'list_articles':
     case 'get_article':
+    case 'get_document_ir':
+    case 'export_document':
+    case 'list_verifiers':
+    case 'verify_document':
+    case 'run_publication_preset':
       return 'articles:read'
+    case 'import_document':
     case 'create_article':
     case 'update_article':
     case 'upload_media':
@@ -601,9 +1014,26 @@ function getToolScope(toolName: string) {
 
 function mapToolNameToAuditAction(toolName: string) {
   switch (toolName) {
+    case 'list_skills':
+    case 'get_skill':
+    case 'list_enabled_skills':
+    case 'run_skill_workflow':
+      return 'articles.read'
     case 'list_articles':
       return 'articles.list'
     case 'get_article':
+      return 'articles.read'
+    case 'get_document_ir':
+      return 'articles.read'
+    case 'import_document':
+      return 'articles.create'
+    case 'export_document':
+      return 'articles.read'
+    case 'list_verifiers':
+      return 'articles.read'
+    case 'verify_document':
+      return 'articles.read'
+    case 'run_publication_preset':
       return 'articles.read'
     case 'create_article':
       return 'articles.create'
@@ -628,6 +1058,74 @@ function mapToolNameToAuditAction(toolName: string) {
     default:
       return 'mcp.connect'
   }
+}
+
+function getVisibleToolDefinitions(auth: PublicationAuthContext) {
+  return TOOL_DEFINITIONS.filter((tool) => {
+    if (
+      tool.name === 'list_verifiers' ||
+      tool.name === 'verify_document' ||
+      tool.name === 'run_publication_preset' ||
+      tool.name === 'run_skill_workflow'
+    ) {
+      return auth.enabledSkillIds.length > 0
+    }
+
+    return true
+  })
+}
+
+function getVisibleResources(auth: PublicationAuthContext) {
+  return [
+    {
+      uri: 'publication://authoring-guide',
+      name: 'Publication Authoring Guide',
+      description: 'Markdown and directive guide for publication system authoring.',
+      mimeType: 'text/markdown',
+    },
+    {
+      uri: 'publication://supported-blocks',
+      name: 'Supported Publication Blocks',
+      description: 'Quick reference for block directives and metadata fields supported by the renderer.',
+      mimeType: 'text/markdown',
+    },
+    {
+      uri: 'publication://workflow-guide',
+      name: 'Publication Workflow Guide',
+      description: 'Agent-first workflow guidance for document IR, verifiers, presets, and exports.',
+      mimeType: 'text/markdown',
+    },
+    {
+      uri: 'publication://verifier-presets',
+      name: 'Publication Verifiers and Presets',
+      description: 'JSON reference for verifiers and preset workflow bundles.',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'publication://agent-prompts',
+      name: 'Publication Agent Prompts',
+      description: 'JSON reference for prompt templates exposed through MCP.',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'publication://skills',
+      name: 'Publication Skills',
+      description: 'Installed governed publication skills and connector metadata.',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'publication://skills/enabled',
+      name: 'Enabled Publication Skills',
+      description: 'The governed publication skills enabled for the current token/profile.',
+      mimeType: 'application/json',
+    },
+    ...listEnabledPublicationSkills(auth).map((skill) => ({
+      uri: `publication://skills/${skill.id}`,
+      name: `${skill.label} Skill`,
+      description: skill.description,
+      mimeType: 'application/json',
+    })),
+  ]
 }
 
 function normalizeFrontmatterValue(value: unknown): PublicationFrontmatterValue | undefined {

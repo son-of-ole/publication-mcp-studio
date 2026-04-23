@@ -13,6 +13,7 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createBrowserSupabaseClient()
+  const isSupabaseLoginAvailable = Boolean(supabase)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -20,7 +21,22 @@ export default function AdminLogin() {
     setError(null)
 
     if (!supabase) {
-      setError('Supabase environment variables are missing for the admin login flow.')
+      const response = await fetch('/api/auth/local-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setError(typeof data.error === 'string' ? data.error : 'Failed to start a local admin session.')
+      } else {
+        router.push('/admin/articles')
+        router.refresh()
+      }
+
       setLoading(false)
       return
     }
@@ -47,7 +63,11 @@ export default function AdminLogin() {
             <Lock className="w-6 h-6" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Admin Login</h1>
-          <p className="text-sm text-gray-500 mt-2">Sign in to manage publications</p>
+          <p className="text-sm text-gray-500 mt-2">
+            {isSupabaseLoginAvailable
+              ? 'Sign in to manage publications'
+              : 'Start a local admin session to manage publications without external auth'}
+          </p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -97,7 +117,7 @@ export default function AdminLogin() {
             disabled={loading}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in...' : isSupabaseLoginAvailable ? 'Sign In' : 'Start Local Session'}
           </button>
         </form>
       </div>

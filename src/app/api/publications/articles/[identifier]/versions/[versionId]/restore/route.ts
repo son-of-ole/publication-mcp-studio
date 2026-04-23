@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicationAdminAuthContext, assertPublicationAdminSession } from '@/lib/publication-admin'
 import { recordPublicationAuditEvent } from '@/lib/publication-audit'
 import { PublicationApiError } from '@/lib/publication-errors'
+import { resolvePublicationRouteAuth } from '@/lib/publication-route-auth'
 import { buildPublicationCorsHeaders, restorePublicationArticleVersion } from '@/lib/publication-service'
 
 export const runtime = 'nodejs'
@@ -14,11 +14,10 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: buildPublicationCorsHeaders() })
 }
 
-export async function POST(_request: NextRequest, context: RouteContext) {
+export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const user = await assertPublicationAdminSession('restore article versions')
+    const auth = await resolvePublicationRouteAuth(request, ['articles:write'], 'restore article versions')
     const { identifier, versionId } = await context.params
-    const auth = createPublicationAdminAuthContext(user.email)
     const result = await restorePublicationArticleVersion(identifier, versionId, auth)
 
     await recordPublicationAuditEvent({

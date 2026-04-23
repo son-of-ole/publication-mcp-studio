@@ -48,6 +48,26 @@ Recommended defaults for drafting agents:
 
 Use `articles:delete` only for trusted maintenance clients.
 
+## Governed Skills
+
+On top of MCP tools/resources/prompts, the publication server now exposes a governed skill layer.
+
+- Core capabilities are always governed by normal scope checks and remain the only write path.
+- Non-core advisory capabilities are grouped into skills.
+- V1 ships with `seo` and `scientific`.
+- Skill enablement is resolved from token profile defaults plus optional token-level restrictions.
+- Compatibility routes such as `verify_document` and `run_publication_preset` respect the same skill gating as direct skill workflows.
+
+Skill discovery surfaces:
+
+- `list_skills`
+- `get_skill`
+- `list_enabled_skills`
+- `run_skill_workflow`
+- `publication://skills`
+- `publication://skills/enabled`
+- `publication://skills/{skillId}`
+
 ## Always-On MCP
 
 The MCP endpoint is always live once the site is deployed:
@@ -205,6 +225,76 @@ POST /api/publications/agent
 
 The AI route returns publication-ready markdown using the frontmatter and directive system already supported by the renderer.
 
+### Import Document
+
+```http
+POST /api/publications/import
+```
+
+Import supported source formats into canonical markdown:
+
+- `markdown`
+- `text`
+- `docx`
+- `pdf`
+- `latex`
+
+Use either `multipart/form-data` with a `file` field or JSON with:
+
+```json
+{
+  "fileName": "draft.tex",
+  "mimeType": "application/x-latex",
+  "text": "\\section{Introduction} Imported content here."
+}
+```
+
+### Export Document
+
+```http
+POST /api/publications/export
+```
+
+Export from raw markdown or an existing article identifier into:
+
+- `markdown`
+- `json`
+- `latex`
+- `docx`
+- `pdf`
+
+```json
+{
+  "identifier": "reliability-under-sicwa",
+  "format": "docx"
+}
+```
+
+### Verify Document
+
+```http
+GET /api/publications/verify
+POST /api/publications/verify
+```
+
+`GET` returns the available verifiers and presets.
+
+`POST` runs either a single verifier or a preset:
+
+```json
+{
+  "identifier": "reliability-under-sicwa",
+  "verifierId": "journal_structure"
+}
+```
+
+```json
+{
+  "markdown": "# Draft",
+  "presetId": "formal_math_pass"
+}
+```
+
 ## MCP Endpoint
 
 Endpoint:
@@ -224,6 +314,15 @@ Transport:
 - HTTP POST JSON-RPC
 - Token-authenticated with the same bearer token
 
+The MCP server now exposes:
+
+- article CRUD
+- canonical document IR inspection
+- import/export adapters
+- verifier and preset discovery
+- document verification workflows
+- prompts for journal, SEO, and formal-math passes
+
 ### Example MCP Client Config
 
 Use the MCP HTTP endpoint with an authorization header. A representative config looks like:
@@ -242,6 +341,32 @@ Use the MCP HTTP endpoint with an authorization header. A representative config 
 }
 ```
 
+### MCP Agent Tools
+
+In addition to article CRUD and media tools, the MCP server now exposes:
+
+- `get_document_ir`
+- `import_document`
+- `export_document`
+- `list_verifiers`
+- `verify_document`
+- `run_publication_preset`
+
+### MCP Resources
+
+- `publication://authoring-guide`
+- `publication://supported-blocks`
+- `publication://workflow-guide`
+- `publication://verifier-presets`
+- `publication://agent-prompts`
+- `publication://article/<slug-or-uuid>/document-ir`
+
+### MCP Prompts
+
+- `journal_submission_pass`
+- `seo_pass`
+- `formal_math_pass`
+
 Exact client syntax varies by platform, but the key pieces are always:
 
 - server URL: `https://<your-domain>/api/publications/mcp`
@@ -250,6 +375,14 @@ Exact client syntax varies by platform, but the key pieces are always:
 If `PUBLICATION_API_SECRET` is configured, you can mint signed expiring tokens from the admin articles page instead of managing a single long-lived static token by hand.
 
 For persistent MCP plugins, prefer a 90-day or 365-day signed token. Short-lived tokens are best reserved for temporary external sessions.
+
+Signed token inventory now also stores:
+
+- `profile_id`
+- `profile_label`
+- `profile_enabled_skill_ids`
+- `token_enabled_skill_ids`
+- `allow_profile_skill_overrides`
 
 ### MCP Tools
 

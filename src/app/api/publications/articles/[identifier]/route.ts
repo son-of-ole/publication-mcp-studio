@@ -6,6 +6,7 @@ import {
   buildPublicationCorsHeaders,
   deletePublicationArticle,
   getPublicationArticle,
+  normalizePublicationArticleMutationInput,
   updatePublicationArticle,
 } from '@/lib/publication-service'
 
@@ -53,7 +54,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const { identifier } = await context.params
     const body = await request.json()
-    const article = await updatePublicationArticle(identifier, body, auth)
+    const article = await updatePublicationArticle(identifier, normalizePublicationArticleMutationInput(body), auth)
 
     await recordPublicationAuditEvent({
       action: 'articles.update',

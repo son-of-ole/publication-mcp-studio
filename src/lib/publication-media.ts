@@ -1,24 +1,10 @@
 import { Buffer } from 'node:buffer'
-import { getPublicationServiceClient } from '@/lib/publication-db'
+import { getPublicationMediaBucketName, getPublicationPlatform } from '@publication-platform'
+import type { PublicationMediaAsset } from '@publication-platform/types'
 import { PublicationApiError } from '@/lib/publication-errors'
 import { slugifyPublicationTitle } from '@/lib/publication-service'
 
-const PUBLICATION_MEDIA_BUCKET = 'article-assets'
 const PUBLICATION_MEDIA_ROOT = 'publications'
-
-export type PublicationMediaAsset = {
-  bucket: string
-  path: string
-  publicUrl: string
-  fileName: string
-  contentType: string
-  sizeBytes: number | null
-  kind: 'image' | 'video' | 'audio' | 'document' | 'other'
-  articleSlug: string
-  embedMarkdown: string
-  createdAt?: string
-  updatedAt?: string
-}
 
 export async function uploadPublicationMedia(input: {
   articleIdentifier?: string
@@ -41,42 +27,25 @@ export async function uploadPublicationMedia(input: {
   const contentType = normalizePublicationMediaContentType(input.contentType, fileName)
   const articleSlug = await resolvePublicationMediaArticleSlug(input.articleIdentifier, input.articleSlug)
   const kind = inferPublicationMediaKind(contentType, fileName)
-  const storagePath = `${PUBLICATION_MEDIA_ROOT}/${articleSlug}/${Date.now()}-${fileName}`
-  const supabase = getPublicationServiceClient()
-
-  const { error } = await supabase.storage.from(PUBLICATION_MEDIA_BUCKET).upload(storagePath, sourceBuffer, {
-    cacheControl: '3600',
+  const embedMarkdown = buildPublicationMediaEmbedMarkdown({
+    fileName,
+    publicUrl: `/${articleSlug}/${fileName}`,
+    kind,
+    altText: input.altText,
+    caption: input.caption,
+    posterUrl: input.posterUrl,
+  })
+  const asset = await getPublicationPlatform().mediaStore.uploadMedia({
+    articleSlug,
+    fileName,
     contentType,
-    upsert: false,
+    data: sourceBuffer,
+    kind,
+    embedMarkdown,
   })
 
-  if (error) {
-    throw new PublicationApiError(500, 'media_upload_failed', error.message, error)
-  }
-
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from(PUBLICATION_MEDIA_BUCKET).getPublicUrl(storagePath)
-
   return {
-    asset: {
-      bucket: PUBLICATION_MEDIA_BUCKET,
-      path: storagePath,
-      publicUrl,
-      fileName,
-      contentType,
-      sizeBytes: sourceBuffer.byteLength,
-      kind,
-      articleSlug,
-      embedMarkdown: buildPublicationMediaEmbedMarkdown({
-        fileName,
-        publicUrl,
-        kind,
-        altText: input.altText,
-        caption: input.caption,
-        posterUrl: input.posterUrl,
-      }),
-    } satisfies PublicationMediaAsset,
+    asset,
   }
 }
 
@@ -86,67 +55,20 @@ export async function listPublicationMedia(input: {
   limit?: number
 }) {
   const articleSlug = await resolvePublicationMediaArticleSlug(input.articleIdentifier, input.articleSlug)
-  const supabase = getPublicationServiceClient()
-  const { data, error } = await supabase.storage.from(PUBLICATION_MEDIA_BUCKET).list(`${PUBLICATION_MEDIA_ROOT}/${articleSlug}`, {
-    limit: clampPublicationMediaLimit(input.limit),
-    sortBy: {
-      column: 'updated_at',
-      order: 'desc',
-    },
-  })
-
-  if (error) {
-    throw new PublicationApiError(500, 'media_list_failed', error.message, error)
-  }
 
   return {
     articleSlug,
-    assets: (data ?? [])
-      .filter((entry) => entry.name && entry.id)
-      .map((entry) => {
-        const path = `${PUBLICATION_MEDIA_ROOT}/${articleSlug}/${entry.name}`
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from(PUBLICATION_MEDIA_BUCKET).getPublicUrl(path)
-        const contentType = normalizePublicationMediaContentType(
-          typeof entry.metadata?.mimetype === 'string' ? entry.metadata.mimetype : undefined,
-          entry.name,
-        )
-        const kind = inferPublicationMediaKind(contentType, entry.name)
-
-        return {
-          bucket: PUBLICATION_MEDIA_BUCKET,
-          path,
-          publicUrl,
-          fileName: entry.name,
-          contentType,
-          sizeBytes: readPublicationMediaSize(entry.metadata),
-          kind,
-          articleSlug,
-          embedMarkdown: buildPublicationMediaEmbedMarkdown({
-            fileName: entry.name,
-            publicUrl,
-            kind,
-          }),
-          createdAt: entry.created_at ?? undefined,
-          updatedAt: entry.updated_at ?? undefined,
-        } satisfies PublicationMediaAsset
-      }),
+    assets: await getPublicationPlatform().mediaStore.listMedia(articleSlug, clampPublicationMediaLimit(input.limit)),
   }
 }
 
 export async function deletePublicationMedia(path: string) {
   const normalizedPath = normalizePublicationMediaPath(path)
-  const supabase = getPublicationServiceClient()
-  const { error } = await supabase.storage.from(PUBLICATION_MEDIA_BUCKET).remove([normalizedPath])
-
-  if (error) {
-    throw new PublicationApiError(500, 'media_delete_failed', error.message, error)
-  }
+  await getPublicationPlatform().mediaStore.deleteMedia(normalizedPath)
 
   return {
     deleted: true,
-    bucket: PUBLICATION_MEDIA_BUCKET,
+    bucket: getPublicationPlatform().kind === 'supabase' ? 'article-assets' : getPublicationMediaBucketName(process.env),
     path: normalizedPath,
   }
 }
@@ -171,22 +93,8 @@ async function resolvePublicationMediaArticleSlug(articleIdentifier?: string, ar
     return 'shared'
   }
 
-  const supabase = getPublicationServiceClient()
-  let query = supabase.from('articles').select('slug').limit(1)
-
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedIdentifier)) {
-    query = query.eq('id', requestedIdentifier)
-  } else {
-    query = query.eq('slug', requestedIdentifier)
-  }
-
-  const { data, error } = await query.maybeSingle()
-
-  if (error) {
-    throw new PublicationApiError(500, 'media_article_lookup_failed', error.message, error)
-  }
-
-  return data?.slug ? slugifyPublicationTitle(data.slug) : slugifyPublicationTitle(requestedIdentifier)
+  const article = await getPublicationPlatform().publicationStore.getArticleByIdentifier(requestedIdentifier)
+  return article?.slug ? slugifyPublicationTitle(article.slug) : slugifyPublicationTitle(requestedIdentifier)
 }
 
 async function resolvePublicationMediaBuffer(input: {
@@ -282,23 +190,6 @@ function normalizePublicationMediaPath(path: string) {
   }
 
   return normalizedPath
-}
-
-function readPublicationMediaSize(metadata: Record<string, unknown> | null | undefined) {
-  if (!metadata) {
-    return null
-  }
-
-  const size =
-    typeof metadata.size === 'number'
-      ? metadata.size
-      : typeof metadata.size === 'string'
-        ? Number.parseInt(metadata.size, 10)
-        : typeof metadata.contentLength === 'number'
-          ? metadata.contentLength
-          : null
-
-  return typeof size === 'number' && !Number.isNaN(size) ? size : null
 }
 
 function buildPublicationMediaEmbedMarkdown(input: {

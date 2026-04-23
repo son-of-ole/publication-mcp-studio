@@ -31,6 +31,7 @@ export type Article = {
   content_markdown: string
   status: 'draft' | 'published'
   created_at?: string
+  updated_at?: string
 }
 
 type PreviewMode = 'publication' | 'layout' | 'source'
@@ -226,18 +227,6 @@ export default function ArticleEditor({ initialArticle }: { initialArticle?: Art
   const layoutLabFrameRef = useRef<HTMLDivElement>(null)
 
   const router = useRouter()
-
-  useEffect(() => {
-    if (!initialState.article.id && !initialArticle) {
-      return
-    }
-
-    setArticle(initialState.article)
-    setMetadata(initialState.metadata)
-    setMetadataListInputs(createListInputState(initialState.metadata))
-    setCustomFrontmatterInput(initialState.customFrontmatterInput)
-    setBodyMarkdown(initialState.body)
-  }, [initialArticle, initialState])
 
   useEffect(() => {
     const frame = layoutLabFrameRef.current

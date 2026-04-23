@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    ".publication-mcp-studio/**",
+    "public/__publication-local/**",
+    "Verifiable-Video-Manifest-Protocol/**",
   ]),
 ]);
 

@@ -91,6 +91,11 @@ CREATE TABLE IF NOT EXISTS public.publication_api_tokens (
   label text NOT NULL,
   token_type text NOT NULL DEFAULT 'signed',
   scopes text[] NOT NULL DEFAULT '{}',
+  profile_id text NULL,
+  profile_label text NULL,
+  profile_enabled_skill_ids text[] NOT NULL DEFAULT '{}',
+  token_enabled_skill_ids text[] NULL,
+  allow_profile_skill_overrides boolean NOT NULL DEFAULT false,
   issued_at timestamp with time zone NOT NULL,
   expires_at timestamp with time zone NOT NULL,
   revoked_at timestamp with time zone NULL,
@@ -100,6 +105,13 @@ CREATE TABLE IF NOT EXISTS public.publication_api_tokens (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+ALTER TABLE public.publication_api_tokens
+  ADD COLUMN IF NOT EXISTS profile_id text NULL,
+  ADD COLUMN IF NOT EXISTS profile_label text NULL,
+  ADD COLUMN IF NOT EXISTS profile_enabled_skill_ids text[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS token_enabled_skill_ids text[] NULL,
+  ADD COLUMN IF NOT EXISTS allow_profile_skill_overrides boolean NOT NULL DEFAULT false;
 
 ALTER TABLE public.publication_api_tokens ENABLE ROW LEVEL SECURITY;
 

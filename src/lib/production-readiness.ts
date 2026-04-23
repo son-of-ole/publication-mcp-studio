@@ -1,4 +1,9 @@
-import { getPublicationServiceClient } from '@/lib/publication-db'
+import {
+  getPublicationMediaBucketName,
+  hasPublicationS3MediaStorageConfig,
+  resolvePublicationMediaStorageDriver,
+  getPublicationPlatform,
+} from '@publication-platform'
 
 export type ReadinessCheck = {
   key: string
@@ -23,9 +28,20 @@ export type ProductionReadinessReport = {
 
 export async function getProductionReadinessReport(): Promise<ProductionReadinessReport> {
   const checks: ReadinessCheck[] = []
+  const platform = getPublicationPlatform()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || ''
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || ''
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || ''
+  const neonDatabaseUrl =
+    process.env.NEON_DATABASE_URL?.trim() ||
+    process.env.DATABASE_URL?.trim() ||
+    process.env.POSTGRES_URL?.trim() ||
+    process.env.POSTGRES_PRISMA_URL?.trim() ||
+    ''
+  const adminEmail = process.env.PUBLICATION_ADMIN_EMAIL?.trim() || ''
+  const adminPassword = process.env.PUBLICATION_ADMIN_PASSWORD || ''
+  const mediaStorageDriver = resolvePublicationMediaStorageDriver(process.env)
+  const mediaStorageBucket = getPublicationMediaBucketName(process.env)
   const publicationSecret = process.env.PUBLICATION_API_SECRET?.trim() || ''
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
@@ -34,10 +50,86 @@ export async function getProductionReadinessReport(): Promise<ProductionReadines
     ''
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim() || process.env.NEXT_PUBLIC_OPENROUTER_API_KEY?.trim() || ''
 
-  checks.push(checkRequired('supabase_url', 'Supabase URL', supabaseUrl, 'NEXT_PUBLIC_SUPABASE_URL is configured.'))
-  checks.push(checkRequired('supabase_anon', 'Supabase anon key', anonKey, 'NEXT_PUBLIC_SUPABASE_ANON_KEY is configured.'))
-  checks.push(checkRequired('supabase_service', 'Supabase service role key', serviceRoleKey, 'SUPABASE_SERVICE_ROLE_KEY is configured.'))
-  checks.push(checkRequired('publication_secret', 'Publication API secret', publicationSecret, 'PUBLICATION_API_SECRET is configured for signed tokens.'))
+  checks.push({
+    key: 'platform_adapter',
+    label: 'Persistence adapter',
+    status: platform.kind === 'local' ? 'warn' : 'pass',
+    detail:
+      platform.kind === 'supabase'
+        ? 'Supabase adapter is active.'
+        : platform.kind === 'neon'
+          ? 'Neon Postgres adapter is active.'
+          : 'Local filesystem adapter is active. This is excellent for local development, but production should use a shared backend adapter.',
+  })
+
+  if (platform.kind === 'supabase') {
+    checks.push(checkRequired('supabase_url', 'Supabase URL', supabaseUrl, 'NEXT_PUBLIC_SUPABASE_URL is configured.'))
+    checks.push(checkRequired('supabase_anon', 'Supabase anon key', anonKey, 'NEXT_PUBLIC_SUPABASE_ANON_KEY is configured.'))
+    checks.push(checkRequired('supabase_service', 'Supabase service role key', serviceRoleKey, 'SUPABASE_SERVICE_ROLE_KEY is configured.'))
+  } else if (platform.kind === 'neon') {
+    checks.push(
+      checkRequired(
+        'neon_database_url',
+        'Neon database URL',
+        neonDatabaseUrl,
+        'A Neon/Postgres connection string is configured.'
+      )
+    )
+    checks.push({
+      key: 'neon_media_storage',
+      label: 'Media storage',
+      status: mediaStorageDriver === 's3' && hasPublicationS3MediaStorageConfig(process.env) ? 'pass' : 'warn',
+      detail:
+        mediaStorageDriver === 's3' && hasPublicationS3MediaStorageConfig(process.env)
+          ? `Shared S3-compatible media storage is configured using bucket "${mediaStorageBucket}".`
+          : 'The Neon adapter stores media files on the local filesystem under public/__publication-local. Configure shared S3-compatible media storage before multi-instance production use.',
+    })
+  } else {
+    checks.push({
+      key: 'local_adapter',
+      label: 'Local adapter persistence',
+      status: 'pass',
+      detail: 'A local persisted adapter is available, so the app can boot without external infrastructure.',
+    })
+  }
+
+  if (platform.adminAuthStore.kind === 'local') {
+    checks.push(
+      adminEmail && adminPassword
+        ? {
+            key: 'admin_credentials',
+            label: 'Admin credentials',
+            status: 'pass',
+            detail: 'PUBLICATION_ADMIN_EMAIL and PUBLICATION_ADMIN_PASSWORD are configured for admin sign-in.',
+          }
+        : {
+            key: 'admin_credentials',
+            label: 'Admin credentials',
+            status: platform.kind === 'local' ? 'warn' : 'warn',
+            detail:
+              'Admin auth is using the local credential flow. Set PUBLICATION_ADMIN_EMAIL and PUBLICATION_ADMIN_PASSWORD before production use.',
+          }
+    )
+  }
+
+  checks.push(
+    publicationSecret
+      ? {
+          key: 'publication_secret',
+          label: 'Publication API secret',
+          status: 'pass',
+          detail: 'PUBLICATION_API_SECRET is configured for signed tokens.',
+        }
+      : {
+          key: 'publication_secret',
+          label: 'Publication API secret',
+          status: platform.kind === 'local' ? 'warn' : 'fail',
+          detail:
+            platform.kind === 'local'
+              ? 'A local fallback signing secret is active. Set PUBLICATION_API_SECRET before production use.'
+              : 'Publication API secret is missing.',
+        }
+  )
   checks.push(
     siteUrl
       ? {
@@ -83,15 +175,6 @@ export async function getProductionReadinessReport(): Promise<ProductionReadines
     })
   }
 
-  if (supabaseUrl && serviceRoleKey) {
-    const supabase = getPublicationServiceClient()
-    checks.push(await checkTableExists(supabase, 'articles', 'Articles table'))
-    checks.push(await checkTableExists(supabase, 'publication_api_audit_log', 'Publication audit log table'))
-    checks.push(await checkTableExists(supabase, 'publication_api_tokens', 'Publication token inventory table'))
-    checks.push(await checkTableExists(supabase, 'publication_article_versions', 'Publication article versions table'))
-    checks.push(await checkStorageBucket(supabase, 'article-assets'))
-  }
-
   const summary = checks.reduce(
     (acc, check) => {
       acc[check.status] += 1
@@ -125,55 +208,4 @@ function checkRequired(key: string, label: string, value: string, successDetail:
         status: 'fail',
         detail: `${label} is missing.`,
       }
-}
-
-async function checkTableExists(
-  supabase: ReturnType<typeof getPublicationServiceClient>,
-  tableName: string,
-  label: string
-): Promise<ReadinessCheck> {
-  const { error } = await supabase.from(tableName).select('*', { head: true, count: 'exact' }).limit(1)
-
-  if (error) {
-    return {
-      key: tableName,
-      label,
-      status: 'fail',
-      detail: `Missing or inaccessible table "${tableName}": ${error.message}`,
-    }
-  }
-
-  return {
-    key: tableName,
-    label,
-    status: 'pass',
-    detail: `Table "${tableName}" is available.`,
-  }
-}
-
-async function checkStorageBucket(
-  supabase: ReturnType<typeof getPublicationServiceClient>,
-  bucketName: string
-): Promise<ReadinessCheck> {
-  const { data, error } = await supabase.storage.listBuckets()
-
-  if (error) {
-    return {
-      key: 'storage_bucket',
-      label: 'Article asset bucket',
-      status: 'warn',
-      detail: `Could not verify storage bucket availability: ${error.message}`,
-    }
-  }
-
-  const bucketExists = (data ?? []).some((bucket) => bucket.name === bucketName || bucket.id === bucketName)
-
-  return {
-    key: 'storage_bucket',
-    label: 'Article asset bucket',
-    status: bucketExists ? 'pass' : 'fail',
-    detail: bucketExists
-      ? `Storage bucket "${bucketName}" is available.`
-      : `Storage bucket "${bucketName}" is missing.`,
-  }
 }

@@ -1,5 +1,5 @@
 import ClientArticleEditor from '@/components/ClientArticleEditor'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { getPublicationPlatform } from '@publication-platform'
 import { notFound } from 'next/navigation'
 
 export default async function EditArticlePage({
@@ -8,15 +8,9 @@ export default async function EditArticlePage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  
-  const supabase = await createServerSupabaseClient()
-  const { data: article, error } = await supabase
-    .from('articles')
-    .select('*')
-    .eq('id', id)
-    .single()
+  const article = await getPublicationPlatform().publicationStore.getArticleByIdentifier(id)
 
-  if (error || !article) {
+  if (!article) {
     return notFound()
   }
 

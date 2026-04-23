@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createPublicationAdminAuthContext, assertPublicationAdminSession } from '@/lib/publication-admin'
 import { recordPublicationAuditEvent } from '@/lib/publication-audit'
 import { PublicationApiError } from '@/lib/publication-errors'
-import { buildPublicationCorsHeaders, createPublicationArticle } from '@/lib/publication-service'
+import {
+  buildPublicationCorsHeaders,
+  createPublicationArticle,
+  normalizePublicationArticleMutationInput,
+} from '@/lib/publication-service'
 
 export const runtime = 'nodejs'
 
@@ -11,7 +15,7 @@ export async function POST(request: NextRequest) {
     const user = await assertPublicationAdminSession('create admin articles')
     const body = await request.json()
     const auth = createPublicationAdminAuthContext(user.email)
-    const article = await createPublicationArticle(body, auth)
+    const article = await createPublicationArticle(normalizePublicationArticleMutationInput(body), auth)
 
     await recordPublicationAuditEvent({
       action: 'articles.create',

@@ -1,0 +1,20 @@
+{
+  "name": "@publication-mcp-studio/platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./errors": "./src/errors.ts",
+    "./media-storage": "./src/media-storage.ts",
+    "./token-scopes": "./src/token-scopes.ts",
+    "./local": "./src/local.ts",
+    "./neon": "./src/neon.ts",
+    "./supabase": "./src/supabase.ts",
+    "./template": "./src/template.ts"
+  }
+}

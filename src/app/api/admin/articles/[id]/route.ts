@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createPublicationAdminAuthContext, assertPublicationAdminSession } from '@/lib/publication-admin'
 import { recordPublicationAuditEvent } from '@/lib/publication-audit'
 import { PublicationApiError } from '@/lib/publication-errors'
-import { buildPublicationCorsHeaders, updatePublicationArticle } from '@/lib/publication-service'
+import {
+  buildPublicationCorsHeaders,
+  normalizePublicationArticleMutationInput,
+  updatePublicationArticle,
+} from '@/lib/publication-service'
 
 export const runtime = 'nodejs'
 
@@ -16,7 +20,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { id } = await context.params
     const body = await request.json()
     const auth = createPublicationAdminAuthContext(user.email)
-    const article = await updatePublicationArticle(id, body, auth)
+    const article = await updatePublicationArticle(id, normalizePublicationArticleMutationInput(body), auth)
 
     await recordPublicationAuditEvent({
       action: 'articles.update',

@@ -1,15 +1,13 @@
 import type { MetadataRoute } from 'next'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { getPublicationPlatform } from '@publication-platform'
 
 const PUBLIC_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://your-domain.example'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const supabase = await createServerSupabaseClient()
-  const { data: articles } = await supabase
-    .from('articles')
-    .select('slug, updated_at, created_at')
-    .eq('status', 'published')
-    .order('created_at', { ascending: false })
+  const articles = await getPublicationPlatform().publicationStore.listArticles({
+    status: 'published',
+    limit: 100,
+  })
 
   const staticRoutes: MetadataRoute.Sitemap = [
     {
@@ -27,12 +25,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   const publicationRoutes: MetadataRoute.Sitemap =
-    articles?.map((article) => ({
+    articles.map((article) => ({
       url: `${PUBLIC_SITE_URL}/publications/${article.slug}`,
       lastModified: article.updated_at || article.created_at || new Date().toISOString(),
       changeFrequency: 'weekly',
       priority: 0.8,
-    })) ?? []
+    }))
 
   return [...staticRoutes, ...publicationRoutes]
 }

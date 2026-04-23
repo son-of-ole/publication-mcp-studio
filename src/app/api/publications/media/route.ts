@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { recordPublicationAuditEvent } from '@/lib/publication-audit'
-import { createPublicationAdminAuthContext, assertPublicationAdminSession } from '@/lib/publication-admin'
 import { PublicationApiError } from '@/lib/publication-errors'
 import { deletePublicationMedia, listPublicationMedia, uploadPublicationMedia } from '@/lib/publication-media'
-import { assertPublicationApiAuth, buildPublicationCorsHeaders, type PublicationAuthContext } from '@/lib/publication-service'
+import { resolvePublicationRouteAuth } from '@/lib/publication-route-auth'
+import { buildPublicationCorsHeaders } from '@/lib/publication-service'
 
 export const runtime = 'nodejs'
 
@@ -13,7 +13,7 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await resolvePublicationMediaAuth(request, ['articles:read'], 'browse publication media')
+    const auth = await resolvePublicationRouteAuth(request, ['articles:read'], 'browse publication media')
     const searchParams = request.nextUrl.searchParams
     const media = await listPublicationMedia({
       articleIdentifier: searchParams.get('articleIdentifier') ?? undefined,
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await resolvePublicationMediaAuth(request, ['articles:write'], 'upload publication media')
+    const auth = await resolvePublicationRouteAuth(request, ['articles:write'], 'upload publication media')
     const upload = request.headers.get('content-type')?.includes('multipart/form-data')
       ? await parseMultipartPublicationMediaRequest(request)
       : await parseJsonPublicationMediaRequest(request)
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const auth = await resolvePublicationMediaAuth(request, ['articles:delete'], 'delete publication media')
+    const auth = await resolvePublicationRouteAuth(request, ['articles:delete'], 'delete publication media')
     const body = await request.json().catch(() => ({}))
     const path = typeof body.path === 'string' ? body.path : ''
     const result = await deletePublicationMedia(path)
@@ -90,23 +90,6 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     return handlePublicationMediaError(error)
   }
-}
-
-async function resolvePublicationMediaAuth(
-  request: NextRequest,
-  scopes: Parameters<typeof assertPublicationApiAuth>[1],
-  purpose: string,
-): Promise<PublicationAuthContext> {
-  const hasPublicationToken =
-    Boolean(request.headers.get('authorization')?.trim()) ||
-    Boolean(request.headers.get('x-publication-token')?.trim())
-
-  if (hasPublicationToken) {
-    return assertPublicationApiAuth(request, scopes)
-  }
-
-  const user = await assertPublicationAdminSession(purpose)
-  return createPublicationAdminAuthContext(user.email)
 }
 
 async function parseJsonPublicationMediaRequest(request: NextRequest) {

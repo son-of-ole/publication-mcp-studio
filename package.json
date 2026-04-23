@@ -8,20 +8,27 @@
     "dev": "node scripts/next-runner.mjs dev",
     "build": "node scripts/next-runner.mjs build",
     "start": "node scripts/next-runner.mjs start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:platform": "tsx --test packages/publication-platform/test/**/*.test.ts",
+    "test:publication": "tsx --test src/lib/publication-document-ir.test.ts src/lib/publication-import-export.test.ts src/lib/publication-skills.test.ts src/lib/publication-verifiers.test.ts",
+    "check": "npm run lint && npm run test:platform && npm run test:publication && npm run build"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1033.0",
     "@chenglou/pretext": "^0.0.3",
+    "@neondatabase/serverless": "^1.1.0",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.87.1",
     "chart.js": "^4.5.1",
     "citation-js": "^0.7.22",
     "clsx": "^2.1.1",
+    "docx": "^9.6.1",
     "katex": "^0.16.44",
     "lucide-react": "^0.555.0",
     "mammoth": "^1.12.0",
     "marked": "^17.0.5",
     "next": "16.0.10",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "react": "19.2.0",
     "react-chartjs-2": "^5.3.1",
@@ -38,6 +45,7 @@
     "eslint": "^9.38.0",
     "eslint-config-next": "16.0.10",
     "tailwindcss": "^4.1.17",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

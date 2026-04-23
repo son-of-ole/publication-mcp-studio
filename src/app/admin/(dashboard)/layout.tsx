@@ -1,15 +1,14 @@
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { FileText, LogOut, Plus } from 'lucide-react'
+import { assertPublicationAdminSession } from '@/lib/publication-admin'
 
 export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await assertPublicationAdminSession('access the admin workspace').catch(() => null)
 
   if (!user) {
     redirect('/admin/login')
@@ -43,7 +42,7 @@ export default async function AdminLayout({
         </nav>
 
         <div className="shrink-0 border-t border-gray-200 p-4">
-          <div className="text-xs text-gray-500 truncate mb-2">{user.email}</div>
+          <div className="text-xs text-gray-500 truncate mb-2">{user.email || 'Admin Dashboard'}</div>
           <form action="/api/auth/signout" method="POST">
             <button
               type="submit"

@@ -6,6 +6,7 @@ import {
   buildPublicationCorsHeaders,
   createPublicationArticle,
   listPublicationArticles,
+  normalizePublicationArticleMutationInput,
 } from '@/lib/publication-service'
 
 export const runtime = 'nodejs'
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
     const auth = await assertPublicationApiAuth(request, ['articles:write'])
 
     const body = await request.json()
-    const article = await createPublicationArticle(body, auth)
+    const article = await createPublicationArticle(normalizePublicationArticleMutationInput(body), auth)
 
     await recordPublicationAuditEvent({
       action: 'articles.create',

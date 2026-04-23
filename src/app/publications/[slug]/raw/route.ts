@@ -1,25 +1,19 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { getPublicationPlatform } from '@publication-platform'
+import { assertPublicationAdminSession } from '@/lib/publication-admin'
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await context.params
-  const supabase = await createServerSupabaseClient()
+  const article = await getPublicationPlatform().publicationStore.getArticleByIdentifier(slug)
 
-  const { data: article, error } = await supabase
-    .from('articles')
-    .select('title, content_markdown, status')
-    .eq('slug', slug)
-    .single()
-
-  if (error || !article) {
+  if (!article) {
     return new Response('Not found', { status: 404 })
   }
 
   if (article.status !== 'published') {
-    const { data: { user } } = await supabase.auth.getUser()
-
+    const user = await assertPublicationAdminSession('view draft markdown').catch(() => null)
     if (!user) {
       return new Response('Not found', { status: 404 })
     }

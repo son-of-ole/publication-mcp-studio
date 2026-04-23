@@ -13,6 +13,11 @@ import {
   PUBLICATION_TOKEN_SCOPES,
   type PublicationTokenScope,
 } from '@/lib/publication-tokens'
+import {
+  createPublicationSkillProfile,
+  listPublicationConnectorHealth,
+  listPublicationSkills,
+} from '@/lib/publication-skills'
 
 export const runtime = 'nodejs'
 
@@ -46,6 +51,11 @@ export async function GET(request: NextRequest) {
         ),
         defaultModel: process.env.PUBLICATION_AGENT_MODEL || 'openai/gpt-5-mini',
         availableScopes: PUBLICATION_TOKEN_SCOPES,
+        availableSkills: listPublicationSkills({
+          auth: { enabledSkillIds: [], adminVisibility: true },
+          includeDisabled: true,
+        }),
+        connectorHealth: listPublicationConnectorHealth(),
         tokens,
       },
       { headers: buildPublicationCorsHeaders() }
@@ -64,6 +74,16 @@ export async function POST(request: NextRequest) {
     const scopes = Array.isArray(body.scopes)
       ? body.scopes.filter((value: unknown): value is PublicationTokenScope => typeof value === 'string')
       : undefined
+    const profileEnabledSkillIds = normalizeSkillIds(body.profileEnabledSkillIds)
+    const tokenEnabledSkillIds = Array.isArray(body.tokenEnabledSkillIds)
+      ? normalizeSkillIds(body.tokenEnabledSkillIds)
+      : null
+    const allowProfileSkillOverrides = body.allowProfileSkillOverrides === true
+    const profile = createPublicationSkillProfile({
+      label: typeof body.profileLabel === 'string' ? body.profileLabel : 'Default Publication Agent',
+      enabledSkillIds: profileEnabledSkillIds,
+      allowTokenOverrides: allowProfileSkillOverrides,
+    })
     const issuedAt = new Date().toISOString()
     const expiresInDays = typeof body.expiresInDays === 'number' ? body.expiresInDays : 365
     const expiresAt = new Date(
@@ -72,6 +92,11 @@ export async function POST(request: NextRequest) {
     const tokenRecord = await createPublicationTokenInventoryRecord({
       label,
       scopes: scopes && scopes.length > 0 ? scopes : ['mcp:connect', 'articles:read', 'articles:write', 'articles:publish', 'agent:generate'],
+      profileId: profile.id,
+      profileLabel: profile.label,
+      profileEnabledSkillIds: profile.enabledSkillIds,
+      tokenEnabledSkillIds,
+      allowProfileSkillOverrides,
       issuedAt,
       expiresAt,
     })
@@ -93,6 +118,11 @@ export async function POST(request: NextRequest) {
         tokenId: tokenRecord.id,
         label: tokenRecord.label,
         scopes: tokenRecord.scopes,
+        profileId: tokenRecord.profile_id,
+        profileLabel: tokenRecord.profile_label,
+        profileEnabledSkillIds: tokenRecord.profile_enabled_skill_ids,
+        tokenEnabledSkillIds: tokenRecord.token_enabled_skill_ids,
+        allowProfileSkillOverrides: tokenRecord.allow_profile_skill_overrides,
       },
     })
 
@@ -111,6 +141,20 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return handlePublicationTokenError(error)
   }
+}
+
+function normalizeSkillIds(input: unknown) {
+  const requested = Array.isArray(input)
+    ? input.filter((value): value is string => typeof value === 'string')
+    : []
+  const availableSkillIds = new Set(
+    listPublicationSkills({
+      auth: { enabledSkillIds: [], adminVisibility: true },
+      includeDisabled: true,
+    }).map((skill) => skill.id)
+  )
+
+  return [...new Set(requested.filter((skillId) => availableSkillIds.has(skillId)))]
 }
 
 function handlePublicationTokenError(error: unknown) {

@@ -15,5 +15,9 @@ const ArticleEditor = dynamic(() => import('./ArticleEditor'), {
 })
 
 export default function ClientArticleEditor({ initialArticle }: { initialArticle?: Article }) {
-  return <ArticleEditor initialArticle={initialArticle} />
+  const articleKey = initialArticle
+    ? `${initialArticle.id ?? 'article'}:${initialArticle.updated_at ?? 'unknown'}:${initialArticle.status}`
+    : 'new-article'
+
+  return <ArticleEditor key={articleKey} initialArticle={initialArticle} />
 }

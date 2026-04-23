@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@publication-platform": ["./packages/publication-platform/src/index.ts"],
+      "@publication-platform/*": ["./packages/publication-platform/src/*"]
     }
   },
   "include": [
@@ -30,5 +32,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "Verifiable-Video-Manifest-Protocol", ".publication-mcp-studio"]
 }
