@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { getPublicationMediaBucketName, getPublicationPlatform } from '@publication-platform'
+import { getPublicationMediaBucketName, getPublicationPlatform } from '@/lib/publication-platform'
 import type { PublicationMediaAsset } from '@publication-platform/types'
 import { PublicationApiError } from '@/lib/publication-errors'
 import { slugifyPublicationTitle } from '@/lib/publication-service'

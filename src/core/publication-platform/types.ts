@@ -1,1 +1,1 @@
-export * from '@publication-platform/types'
+export * from '@publication-mcp-studio/platform/types'

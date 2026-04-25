@@ -1,4 +1,4 @@
-import type { PublicationTokenScope } from '@publication-platform/token-scopes'
+import type { PublicationTokenScope } from './token-scopes'
 
 export type PublicationArticleStatus = 'draft' | 'published'
 
@@ -275,9 +275,14 @@ export type LocalPublicationPlatformOptions = {
   seedDemoContent?: boolean
   adminEmail?: string
   adminPassword?: string
+  adminAuthStore?: AdminAuthStore
+}
+
+export type SupabasePublicationPlatformOptions = {
+  adminAuthStore?: AdminAuthStore
 }
 
 export type NeonPublicationPlatformOptions = LocalPublicationPlatformOptions & {
   databaseUrl?: string
-  mediaStorage?: import('@publication-platform/media-storage').PublicationMediaStorageOptions
+  mediaStorage?: import('./media-storage').PublicationMediaStorageOptions
 }

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next'
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 
 const PUBLIC_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://your-domain.example'
 

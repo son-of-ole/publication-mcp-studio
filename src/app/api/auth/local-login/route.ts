@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 
 export const runtime = 'nodejs'
 

@@ -1,0 +1,13 @@
+services:
+  publication-mcp-studio:
+    build:
+      context: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PUBLICATION_PLATFORM_ADAPTER: ${PUBLICATION_PLATFORM_ADAPTER:-local}
+      PUBLICATION_ADMIN_EMAIL: ${PUBLICATION_ADMIN_EMAIL:-admin@example.com}
+      PUBLICATION_ADMIN_PASSWORD: ${PUBLICATION_ADMIN_PASSWORD:-change-me}
+      PUBLICATION_API_SECRET: ${PUBLICATION_API_SECRET:-publication-mcp-studio-compose-secret}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}

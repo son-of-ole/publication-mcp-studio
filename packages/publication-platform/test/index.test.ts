@@ -12,8 +12,8 @@ import {
   hasSupabasePublicationPlatformConfig,
   resolvePublicationMediaStorageDriver,
   resolvePublicationPlatformAdapterName,
-} from '@publication-platform'
-import { PublicationApiError } from '@publication-platform/errors'
+} from '@publication-mcp-studio/platform'
+import { PublicationApiError } from '@publication-mcp-studio/platform/errors'
 
 test('lists the built-in adapters in stable order', () => {
   assert.deepEqual(getAvailablePublicationPlatformAdapters(), ['local', 'neon', 'supabase'])

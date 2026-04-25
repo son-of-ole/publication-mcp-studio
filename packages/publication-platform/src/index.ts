@@ -1,27 +1,26 @@
-import { createLocalPublicationPlatform } from '@publication-platform/local'
-import {
-  getPublicationMediaStorageOptionsFromEnv,
-} from '@publication-platform/media-storage'
-import { createNeonPublicationPlatform } from '@publication-platform/neon'
-import { createSupabasePublicationPlatform } from '@publication-platform/supabase'
-import { PublicationApiError } from '@publication-platform/errors'
+import { createLocalPublicationPlatform } from './local'
+import { getPublicationMediaStorageOptionsFromEnv } from './media-storage'
+import { createNeonPublicationPlatform } from './neon'
+import { createSupabasePublicationPlatform } from './supabase'
+import { PublicationApiError } from './errors'
 import type {
   LocalPublicationPlatformOptions,
   NeonPublicationPlatformOptions,
   PublicationPlatformFactoryRegistry,
-} from '@publication-platform/types'
+  SupabasePublicationPlatformOptions,
+} from './types'
 
-export * from '@publication-platform/errors'
-export * from '@publication-platform/media-storage'
-export * from '@publication-platform/token-scopes'
-export * from '@publication-platform/types'
-export { createLocalPublicationPlatform } from '@publication-platform/local'
-export { createNeonPublicationPlatform } from '@publication-platform/neon'
-export { createSupabasePublicationPlatform } from '@publication-platform/supabase'
+export * from './errors'
+export * from './media-storage'
+export * from './token-scopes'
+export * from './types'
+export { createLocalPublicationPlatform } from './local'
+export { createNeonPublicationPlatform } from './neon'
+export { createSupabasePublicationPlatform } from './supabase'
 export {
   createTemplatePublicationPlatform,
   createTemplatePublicationPlatformFactory,
-} from '@publication-platform/template'
+} from './template'
 
 type PublicationEnv = Record<string, string | undefined>
 
@@ -66,16 +65,21 @@ export function hasNeonPublicationPlatformConfig(env: PublicationEnv = process.e
   return Boolean(databaseUrl && (/\.neon\.tech\b/i.test(databaseUrl) || env.NEON_DATABASE_URL?.trim()))
 }
 
+export function getSupabasePublicationPlatformOptionsFromEnv(): SupabasePublicationPlatformOptions {
+  return {}
+}
+
 export function createPublicationPlatformRegistry(
   env: PublicationEnv = process.env
 ): PublicationPlatformFactoryRegistry {
   const localOptions = getLocalPublicationPlatformOptionsFromEnv(env)
   const neonOptions = getNeonPublicationPlatformOptionsFromEnv(env)
+  const supabaseOptions = getSupabasePublicationPlatformOptionsFromEnv()
 
   return {
     local: () => createLocalPublicationPlatform(localOptions),
     neon: () => createNeonPublicationPlatform(neonOptions),
-    supabase: () => createSupabasePublicationPlatform(),
+    supabase: () => createSupabasePublicationPlatform(supabaseOptions),
   }
 }
 

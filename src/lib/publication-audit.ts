@@ -1,4 +1,4 @@
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 import type { PublicationAuditAction, PublicationAuthContext, PublicationArticleRecord } from '@publication-platform/types'
 
 export async function recordPublicationAuditEvent(input: {

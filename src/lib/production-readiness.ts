@@ -3,7 +3,7 @@ import {
   hasPublicationS3MediaStorageConfig,
   resolvePublicationMediaStorageDriver,
   getPublicationPlatform,
-} from '@publication-platform'
+} from '@/lib/publication-platform'
 
 export type ReadinessCheck = {
   key: string

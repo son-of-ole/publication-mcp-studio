@@ -1,5 +1,5 @@
-import { PublicationApiError } from '@publication-platform/errors'
-import type { PublicationPlatform, PublicationPlatformFactory } from '@publication-platform/types'
+import { PublicationApiError } from './errors'
+import type { PublicationPlatform, PublicationPlatformFactory } from './types'
 
 function notImplemented(adapterName: string, methodName: string): never {
   throw new PublicationApiError(

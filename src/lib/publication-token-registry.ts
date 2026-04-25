@@ -1,4 +1,4 @@
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 import { PublicationApiError } from '@/lib/publication-errors'
 import type { PublicationTokenScope } from '@/lib/publication-tokens'
 

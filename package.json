@@ -4,14 +4,20 @@
   "private": true,
   "license": "MIT",
   "author": "Gordon Olson",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
+    "bootstrap": "node scripts/bootstrap-integration.mjs",
     "dev": "node scripts/next-runner.mjs dev",
     "build": "node scripts/next-runner.mjs build",
     "start": "node scripts/next-runner.mjs start",
     "lint": "eslint",
+    "build:packages": "npm run build --workspace @publication-mcp-studio/platform && npm run build --workspace @publication-mcp-studio/client",
+    "build:platform": "npm run build --workspace @publication-mcp-studio/platform",
     "test:platform": "tsx --test packages/publication-platform/test/**/*.test.ts",
     "test:publication": "tsx --test src/lib/publication-document-ir.test.ts src/lib/publication-import-export.test.ts src/lib/publication-skills.test.ts src/lib/publication-verifiers.test.ts",
-    "check": "npm run lint && npm run test:platform && npm run test:publication && npm run build"
+    "check": "npm run lint && npm run build:packages && npm run test:platform && npm run test:publication && npm run build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1033.0",
@@ -45,6 +51,7 @@
     "eslint": "^9.38.0",
     "eslint-config-next": "16.0.10",
     "tailwindcss": "^4.1.17",
+    "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

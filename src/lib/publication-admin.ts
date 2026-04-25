@@ -1,4 +1,4 @@
-import { getPublicationPlatform, hasSupabasePublicationPlatformConfig } from '@publication-platform'
+import { getPublicationPlatform, hasSupabasePublicationPlatformConfig } from '@/lib/publication-platform'
 import type { PublicationAuthContext } from '@publication-platform/types'
 import { PublicationApiError } from '@/lib/publication-errors'
 import { listPublicationSkills } from '@/lib/publication-skills'

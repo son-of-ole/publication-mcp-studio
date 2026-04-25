@@ -1,1 +1,1 @@
-export * from '@publication-platform/local'
+export * from '@publication-mcp-studio/platform/local'

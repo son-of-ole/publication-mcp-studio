@@ -1,1 +1,1 @@
-export * from '@publication-platform/media-storage'
+export * from '@publication-mcp-studio/platform/media-storage'

@@ -1,1 +1,1 @@
-export * from '@publication-platform/supabase'
+export * from '@publication-mcp-studio/platform/supabase'

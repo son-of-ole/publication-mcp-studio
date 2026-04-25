@@ -1,1 +1,1 @@
-export * from '@publication-platform'
+export * from '@/lib/publication-platform'

@@ -10,14 +10,22 @@ A standalone, markdown-first scientific publication system with:
 - governed SEO and Scientific skill bundles for MCP agents
 - version history, audit logging, and token inventory
 
+It supports both:
+
+- hosted integration through REST/MCP plus `@publication-mcp-studio/client`
+- embedded integration through `@publication-mcp-studio/platform`
+
 ## What This Repo Contains
 
 - `src/app/publications` for the public-facing publication library and article pages
 - `src/app/admin` for the publication admin/editor UI
 - `src/app/api/publications` for REST, MCP, token, media, audit, and agent routes
 - `src/lib/publication-*` for the publication service layer
+- `packages/publication-platform` for the installable adapter/platform package
+- `packages/publication-client` for the installable hosted-service client package
 - `docs/publications-authoring.md` for markdown/frontmatter authoring
 - `docs/publications-api-mcp.md` for the external API and MCP contract
+- `docs/publication-integration-guide.md` for integration into outside stacks
 
 ## Environment
 
@@ -92,6 +100,8 @@ To integrate this into another stack later, add a new adapter that satisfies tho
 
 There is also a scaffold helper in `packages/publication-platform/src/template.ts` for standing up a new adapter without starting from scratch.
 
+For hosted-service consumers, install `@publication-mcp-studio/client` and call the deployed REST/MCP endpoints instead of embedding the storage layer.
+
 ## Governed Skills
 
 The MCP layer now includes a governed skill registry on top of core MCP primitives.
@@ -116,6 +126,7 @@ New MCP surfaces include:
 
 ```bash
 npm install
+npm run bootstrap
 npm run dev
 ```
 
@@ -124,6 +135,12 @@ For a full repo safety pass:
 ```bash
 npm run check
 ```
+
+Integration examples:
+
+- [docs/publication-integration-guide.md](/Users/olson/Software/publication-mcp-studio/docs/publication-integration-guide.md)
+- [templates/nextjs-embedded/README.md](/Users/olson/Software/publication-mcp-studio/templates/nextjs-embedded/README.md)
+- [templates/hosted-client/README.md](/Users/olson/Software/publication-mcp-studio/templates/hosted-client/README.md)
 
 ## Neon
 
@@ -159,4 +176,10 @@ The MCP endpoint will be available at:
 
 ```text
 https://your-domain.example/api/publications/mcp
+```
+
+Quick hosted smoke test:
+
+```bash
+docker compose up --build
 ```

@@ -2,12 +2,12 @@ import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { neon } from '@neondatabase/serverless'
-import { createLocalPublicationPlatform } from '@publication-platform/local'
-import { PublicationApiError } from '@publication-platform/errors'
+import { createLocalPublicationPlatform } from './local'
+import { PublicationApiError } from './errors'
 import {
   hasPublicationS3MediaStorageConfig,
   resolvePublicationMediaStorageDriver,
-} from '@publication-platform/media-storage'
+} from './media-storage'
 import type {
   AuditStore,
   MediaStore,
@@ -23,7 +23,7 @@ import type {
   PublicationVersionStore,
   PublicationStore,
   TokenStore,
-} from '@publication-platform/types'
+} from './types'
 
 const LOCAL_NEON_MEDIA_BUCKET = 'local-publication-assets'
 const NEON_MEDIA_PUBLIC_PREFIX = '/__publication-local/media'

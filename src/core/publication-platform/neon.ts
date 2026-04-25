@@ -1,1 +1,1 @@
-export * from '@publication-platform/neon'
+export * from '@publication-mcp-studio/platform/neon'

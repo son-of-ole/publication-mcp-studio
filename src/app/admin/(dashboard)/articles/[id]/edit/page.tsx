@@ -1,5 +1,5 @@
 import ClientArticleEditor from '@/components/ClientArticleEditor'
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 import { notFound } from 'next/navigation'
 
 export default async function EditArticlePage({

@@ -7,7 +7,7 @@ import {
   type PublicationFrontmatter,
   type PublicationMetadata,
 } from '@/lib/publications'
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 import type {
   PublicationArticleRecord,
   PublicationArticleStatus,

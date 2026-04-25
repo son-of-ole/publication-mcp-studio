@@ -20,6 +20,9 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
+      "@publication-mcp-studio/client": ["./packages/publication-client/src/index.ts"],
+      "@publication-mcp-studio/platform": ["./packages/publication-platform/src/index.ts"],
+      "@publication-mcp-studio/platform/*": ["./packages/publication-platform/src/*"],
       "@publication-platform": ["./packages/publication-platform/src/index.ts"],
       "@publication-platform/*": ["./packages/publication-platform/src/*"]
     }
@@ -32,5 +35,11 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "Verifiable-Video-Manifest-Protocol", ".publication-mcp-studio"]
+  "exclude": [
+    "node_modules",
+    "Verifiable-Video-Manifest-Protocol",
+    ".publication-mcp-studio",
+    "templates",
+    "packages/*/dist"
+  ]
 }

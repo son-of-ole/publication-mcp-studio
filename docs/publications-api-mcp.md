@@ -2,6 +2,8 @@
 
 The publication system now exposes a token-authenticated service layer so external agents can draft, update, and publish articles without touching the browser editor.
 
+If you want a fetch-based SDK instead of hand-writing HTTP calls, use `@publication-mcp-studio/client` against a deployed Publication MCP Studio service.
+
 ## Required Environment Variables
 
 Add these to your deployment environment:

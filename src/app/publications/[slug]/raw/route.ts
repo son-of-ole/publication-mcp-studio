@@ -1,4 +1,4 @@
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 import { assertPublicationAdminSession } from '@/lib/publication-admin'
 
 export async function GET(

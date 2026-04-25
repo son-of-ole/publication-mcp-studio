@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { createLocalPublicationPlatform } from '@publication-platform/local'
+import { createLocalPublicationPlatform } from '@publication-mcp-studio/platform/local'
 
 async function createTempRoot() {
   return mkdtemp(path.join(tmpdir(), 'publication-platform-'))

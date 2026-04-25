@@ -1,11 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import type {
   AdminAuthStore,
   AuditStore,
   MediaStore,
-  PublicationAdminUser,
   PublicationArticleListOptions,
   PublicationArticleRecord,
   PublicationArticleVersionRecord,
@@ -13,11 +10,12 @@ import type {
   PublicationMediaUploadPayload,
   PublicationPlatform,
   PublicationStore,
+  SupabasePublicationPlatformOptions,
   PublicationTokenInventoryRecord,
   PublicationVersionStore,
   TokenStore,
-} from '@publication-platform/types'
-import { PublicationApiError } from '@publication-platform/errors'
+} from './types'
+import { PublicationApiError } from './errors'
 
 const SUPABASE_MEDIA_BUCKET = 'article-assets'
 
@@ -44,28 +42,6 @@ function createSupabaseServiceClient() {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
-    },
-  })
-}
-
-async function createSupabaseServerClient() {
-  const { supabaseUrl, supabaseAnonKey } = getRequiredSupabaseConfig()
-  const cookieStore = await cookies()
-
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll()
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options)
-          })
-        } catch {
-          // Ignore cookie mutation errors from read-only server contexts.
-        }
-      },
     },
   })
 }
@@ -397,33 +373,22 @@ const mediaStore: MediaStore = {
   },
 }
 
-const adminAuthStore: AdminAuthStore = {
-  kind: 'supabase',
+export function createSupabasePublicationPlatform(
+  options: SupabasePublicationPlatformOptions = {}
+): PublicationPlatform {
+  const adminAuthStore: AdminAuthStore = {
+    ...(options.adminAuthStore ?? {}),
+    kind: 'supabase',
 
-  async getCurrentUser() {
-    const supabase = await createSupabaseServerClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    async getCurrentUser() {
+      return options.adminAuthStore?.getCurrentUser?.() ?? null
+    },
 
-    if (!user) {
-      return null
-    }
+    async signOut() {
+      await options.adminAuthStore?.signOut?.()
+    },
+  }
 
-    return {
-      id: user.id,
-      email: user.email ?? null,
-      mode: 'supabase',
-    } satisfies PublicationAdminUser
-  },
-
-  async signOut() {
-    const supabase = await createSupabaseServerClient()
-    await supabase.auth.signOut()
-  },
-}
-
-export function createSupabasePublicationPlatform(): PublicationPlatform {
   return {
     kind: 'supabase',
     publicationStore,

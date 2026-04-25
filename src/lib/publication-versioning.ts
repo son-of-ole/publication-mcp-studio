@@ -1,4 +1,4 @@
-import { getPublicationPlatform } from '@publication-platform'
+import { getPublicationPlatform } from '@/lib/publication-platform'
 import type { PublicationArticleRecord, PublicationAuthContext } from '@publication-platform/types'
 import { PublicationApiError } from '@/lib/publication-errors'
 

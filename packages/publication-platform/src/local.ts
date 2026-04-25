@@ -1,13 +1,11 @@
 import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { cookies } from 'next/headers'
 import type {
   AdminAuthStore,
   AuditStore,
   LocalPublicationPlatformOptions,
   MediaStore,
-  PublicationAdminUser,
   PublicationArticleListOptions,
   PublicationArticleRecord,
   PublicationArticleVersionRecord,
@@ -19,9 +17,8 @@ import type {
   PublicationTokenInventoryRecord,
   PublicationVersionStore,
   TokenStore,
-} from '@publication-platform/types'
+} from './types'
 
-const LOCAL_ADMIN_COOKIE = 'publication_admin_session'
 const localStateMutationQueues = new Map<string, Promise<void>>()
 
 type LocalState = {
@@ -135,8 +132,7 @@ function clampLimit(limit: number | undefined, fallback: number, max: number) {
 export function createLocalPublicationPlatform(options: LocalPublicationPlatformOptions = {}): PublicationPlatform {
   const rootDir = options.rootDir ?? process.cwd()
   const seedDemoContent = options.seedDemoContent ?? true
-  const configuredAdminEmail = options.adminEmail?.trim().toLowerCase() || ''
-  const configuredAdminPassword = options.adminPassword ?? ''
+  const configuredAdminAuthStore = options.adminAuthStore
   const localStateDir = path.join(rootDir, '.publication-mcp-studio')
   const localStateFile = path.join(localStateDir, 'state.json')
   const localPublicRoot = path.join(rootDir, 'public', '__publication-local')
@@ -428,65 +424,26 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
     },
   }
 
-  async function readLocalAdminUser(): Promise<PublicationAdminUser | null> {
-    const cookieStore = await cookies()
-    const session = cookieStore.get(LOCAL_ADMIN_COOKIE)?.value?.trim()
-    if (!session) {
-      return null
-    }
-
-    return {
-      id: 'local-admin',
-      email: decodeURIComponent(session),
-      mode: 'local',
-    }
-  }
-
   const adminAuthStore: AdminAuthStore = {
+    ...(configuredAdminAuthStore ?? {}),
     kind: 'local',
 
     async getCurrentUser() {
-      return readLocalAdminUser()
+      return configuredAdminAuthStore?.getCurrentUser?.() ?? null
     },
 
     async signOut() {
-      const cookieStore = await cookies()
-      cookieStore.delete(LOCAL_ADMIN_COOKIE)
+      await configuredAdminAuthStore?.signOut?.()
     },
 
     async signInWithPassword(input) {
-      const email = input.email.trim().toLowerCase()
-      const password = input.password.trim()
-
-      if (!email || !password) {
-        throw new Error('Email and password are required for a local admin session.')
+      if (configuredAdminAuthStore?.signInWithPassword) {
+        return configuredAdminAuthStore.signInWithPassword(input)
       }
 
-      if (configuredAdminEmail || configuredAdminPassword) {
-        if (
-          !configuredAdminEmail ||
-          !configuredAdminPassword ||
-          email !== configuredAdminEmail ||
-          password !== configuredAdminPassword
-        ) {
-          throw new Error('Invalid admin credentials for this publication workspace.')
-        }
-      }
-
-      const cookieStore = await cookies()
-      cookieStore.set(LOCAL_ADMIN_COOKIE, encodeURIComponent(email), {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 60 * 60 * 24 * 30,
-      })
-
-      return {
-        id: 'local-admin',
-        email,
-        mode: 'local',
-      }
+      throw new Error(
+        'This local publication platform does not provide a built-in admin session handler. Supply options.adminAuthStore from your host stack.'
+      )
     },
   }
 
