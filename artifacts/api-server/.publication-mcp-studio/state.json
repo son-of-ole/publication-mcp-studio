@@ -30,6 +30,33 @@
   ],
   "tokens": [
     {
+      "id": "f0a6c874-6cb5-49d1-b410-87e5befc7804",
+      "label": "Admin token for admin@example.com",
+      "token_type": "signed",
+      "scopes": [
+        "mcp:connect",
+        "articles:read",
+        "articles:write",
+        "articles:publish",
+        "articles:delete",
+        "agent:generate",
+        "audit:read"
+      ],
+      "profile_id": null,
+      "profile_label": null,
+      "profile_enabled_skill_ids": [],
+      "token_enabled_skill_ids": null,
+      "allow_profile_skill_overrides": false,
+      "issued_at": "2026-05-02T22:50:41.095Z",
+      "expires_at": "2026-05-03T22:50:41.095Z",
+      "revoked_at": null,
+      "last_used_at": null,
+      "last_used_route": null,
+      "last_used_method": null,
+      "created_at": "2026-05-02T22:50:41.096Z",
+      "updated_at": "2026-05-02T22:50:41.096Z"
+    },
+    {
       "id": "4cafe2d5-c9fa-4e4f-b4bf-126c3ff280ff",
       "label": "Admin token for admin@example.com",
       "token_type": "signed",
@@ -85,6 +112,25 @@
     }
   ],
   "audit": [
+    {
+      "action": "tokens.issue",
+      "actor_label": "admin@example.com",
+      "actor_type": "static",
+      "scopes": [
+        "*"
+      ],
+      "route": "/api/publications/admin/login",
+      "method": "POST",
+      "article_id": null,
+      "article_slug": null,
+      "status": "success",
+      "metadata": {
+        "tokenId": "f0a6c874-6cb5-49d1-b410-87e5befc7804",
+        "label": "Admin token for admin@example.com"
+      },
+      "id": "ebe89bdc-bd4e-4b2c-bebe-c22687b88c7b",
+      "created_at": "2026-05-02T22:50:41.099Z"
+    },
     {
       "action": "tokens.issue",
       "actor_label": "admin@example.com",
