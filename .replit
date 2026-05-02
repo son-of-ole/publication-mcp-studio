@@ -34,4 +34,3 @@ externalPort = 3000
 [userenv]
 
 [userenv.shared]
-PUBLICATION_API_SECRET = "EM145UeSsACxgfDJIrhhwImLJKT6avCp3j0ohwZKBzOJFtYpFyQkdoFJX2vbggEt"
