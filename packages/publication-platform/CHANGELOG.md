@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
 - Documented that `@publication-mcp-studio/platform@0.1.0` is experimental for Neon HTTP integrations until the adapter avoids `SELECT *`, `RETURNING *`, and nullable `text[]` bindings.
 - Added a public integration feedback tracker for v0.1.0 with the v0.1.1 SDK priorities.
