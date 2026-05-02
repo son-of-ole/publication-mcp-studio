@@ -1,0 +1,34 @@
+{
+  "articles": [
+    {
+      "id": "c93f2705-9325-4340-9799-d8d029767fbc",
+      "title": "Portable Publication System Demo",
+      "slug": "portable-publication-system-demo",
+      "content_markdown": "---\ntitle: \"Portable Publication System Demo\"\npublicationLabel: \"Demo Article\"\nsubtitle: \"A seeded publication for local development and adapter testing\"\nauthors:\n  - \"Publication MCP Studio\"\ntags:\n  - \"demo\"\n  - \"local-mode\"\npublished: \"2026-04-20\"\n---\n\n## Why This Exists\n\nThis local article makes the publication library usable without provisioning Supabase first.\n\n## What To Try\n\n- Open the admin workspace and edit this article.\n- Create a second article to verify version history and the MCP routes.\n- Replace the local adapter later with another persistence layer through the platform contract.\n",
+      "status": "published",
+      "created_at": "2026-05-02T21:54:44.030Z",
+      "updated_at": "2026-05-02T21:54:44.030Z"
+    }
+  ],
+  "versions": [
+    {
+      "id": "cd883d24-00c2-4ddc-bb23-e80a68e93be3",
+      "article_id": "c93f2705-9325-4340-9799-d8d029767fbc",
+      "version_number": 1,
+      "source_action": "seed",
+      "title": "Portable Publication System Demo",
+      "slug": "portable-publication-system-demo",
+      "content_markdown": "---\ntitle: \"Portable Publication System Demo\"\npublicationLabel: \"Demo Article\"\nsubtitle: \"A seeded publication for local development and adapter testing\"\nauthors:\n  - \"Publication MCP Studio\"\ntags:\n  - \"demo\"\n  - \"local-mode\"\npublished: \"2026-04-20\"\n---\n\n## Why This Exists\n\nThis local article makes the publication library usable without provisioning Supabase first.\n\n## What To Try\n\n- Open the admin workspace and edit this article.\n- Create a second article to verify version history and the MCP routes.\n- Replace the local adapter later with another persistence layer through the platform contract.\n",
+      "status": "published",
+      "actor_label": "Local Platform Seed",
+      "actor_type": "static",
+      "metadata": {
+        "source": "local-seed"
+      },
+      "created_at": "2026-05-02T21:54:44.030Z"
+    }
+  ],
+  "tokens": [],
+  "audit": [],
+  "media": []
+}
