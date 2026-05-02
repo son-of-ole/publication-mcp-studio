@@ -165,14 +165,6 @@ function getPublicationTokenSecrets() {
     .map((value) => value.trim())
     .filter(Boolean)
 
-  if (
-    secrets.length === 0 &&
-    !process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&
-    !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-  ) {
-    secrets.push('publication-mcp-studio-local-secret')
-  }
-
   return [...new Set(secrets)]
 }
 

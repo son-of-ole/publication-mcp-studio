@@ -225,10 +225,11 @@ export async function assertPublicationApiAuth(
     authContext.enabledSkillIds = skillAccess.enabledSkillIds
     authContext.adminVisibility = skillAccess.adminVisibility
 
-    const reqUrl = typeof (request as any).originalUrl === 'string'
-      ? (request as any).originalUrl
-      : (request as any).url || '/'
-    const reqMethod = (request as any).method || 'POST'
+    const reqRecord = request as { originalUrl?: string; url?: string; method?: string }
+    const reqUrl = typeof reqRecord.originalUrl === 'string'
+      ? reqRecord.originalUrl
+      : reqRecord.url || '/'
+    const reqMethod = reqRecord.method || 'POST'
     await touchPublicationTokenInventoryRecord(tokenRecord.id, reqUrl.split('?')[0], reqMethod)
   } else {
     const skillAccess = resolvePublicationAuthSkillAccess({

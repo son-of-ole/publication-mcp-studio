@@ -470,8 +470,8 @@ export async function handleMcpPost(req: Request, res: Response) {
       method === 'initialize' || method === 'ping' ||
       method === 'tools/list' || method === 'resources/list' || method === 'resources/read' ||
       method === 'prompts/list' || method === 'prompts/get' || method === 'tools/call'
-        ? await assertPublicationApiAuth(req as any, ['mcp:connect'])
-        : await assertPublicationApiAuth(req as any)
+        ? await assertPublicationApiAuth(req, ['mcp:connect'])
+        : await assertPublicationApiAuth(req)
 
     if (!method) {
       return jsonRpcError(res, payload.id ?? null, -32600, 'Invalid JSON-RPC request.')
@@ -483,7 +483,7 @@ export async function handleMcpPost(req: Request, res: Response) {
 
     if (method === 'initialize') {
       await recordPublicationAuditEvent({
-        action: 'mcp.connect' as any,
+        action: 'mcp.connect',
         auth,
         route: '/api/publications/mcp',
         method: 'POST',
@@ -522,7 +522,7 @@ export async function handleMcpPost(req: Request, res: Response) {
       const structuredContent = await callTool(toolName, args, auth)
 
       await recordPublicationAuditEvent({
-        action: mapToolNameToAuditAction(toolName) as any,
+        action: mapToolNameToAuditAction(toolName),
         auth,
         route: '/api/publications/mcp',
         method: 'POST',

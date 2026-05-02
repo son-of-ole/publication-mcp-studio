@@ -1,6 +1,6 @@
-import type { Request } from 'express'
+import type { Request as ExpressRequest } from 'express'
 
-export function adaptExpressRequestToFetch(req: Request): Request {
+export function adaptExpressRequestToFetch(req: ExpressRequest): globalThis.Request {
   const protocol = req.protocol || 'http'
   const host = req.get('host') || 'localhost'
   const url = `${protocol}://${host}${req.originalUrl || req.url}`
@@ -15,5 +15,5 @@ export function adaptExpressRequestToFetch(req: Request): Request {
   return new globalThis.Request(url, {
     method: req.method,
     headers,
-  }) as any
+  })
 }
