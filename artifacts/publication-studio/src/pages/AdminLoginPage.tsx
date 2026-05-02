@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useLocation } from 'wouter'
-import { Lock, Eye, EyeOff } from 'lucide-react'
+import { Link, useLocation } from 'wouter'
+import { Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react'
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState('')
@@ -33,7 +33,16 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 px-4 py-12">
+      <div className="w-full max-w-md mb-4">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to home
+        </Link>
+      </div>
       <div className="w-full max-w-md p-8 bg-white rounded-lg shadow-md border border-gray-100">
         <div className="flex flex-col items-center mb-8">
           <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4">

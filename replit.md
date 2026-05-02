@@ -4,6 +4,10 @@
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
 
+## Project Purpose
+
+This project is primarily an **SDK distributed via npm** (the `@publication-mcp-studio/platform` package and its companion publication library) that other applications can embed to add scientific publication + MCP-endpoint capabilities. The Vite+React frontend (`artifacts/publication-studio`) and Express API (`artifacts/api-server`) here are a **reference / demo host** for the SDK — they exist to exercise and showcase the library, not to be the end product. Keep changes scoped accordingly: prefer adding capability to the SDK packages, and treat the frontend/API as thin consumers.
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces
