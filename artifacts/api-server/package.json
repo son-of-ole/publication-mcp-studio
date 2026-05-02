@@ -34,12 +34,14 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "undici": "^8.2.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
     "@types/node": "catalog:",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",

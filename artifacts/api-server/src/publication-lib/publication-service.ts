@@ -120,16 +120,21 @@ export function buildPublicationCorsHeaders() {
   }
 }
 
-function getHeaderValue(request: Request | { headers: Record<string, string | string[] | undefined> }, name: string): string {
-  if (typeof (request as any).headers.get === 'function') {
-    return (request as Request).headers.get(name) ?? ''
+export type PublicationRouteRequest =
+  | Request
+  | { headers: Record<string, string | string[] | undefined>; url?: string; method?: string }
+
+function getHeaderValue(request: PublicationRouteRequest, name: string): string {
+  const headers = request.headers as unknown
+  if (headers && typeof (headers as { get?: unknown }).get === 'function') {
+    return (headers as Headers).get(name) ?? ''
   }
-  const val = (request as any).headers[name]
+  const val = (headers as Record<string, string | string[] | undefined>)[name]
   return Array.isArray(val) ? val[0] ?? '' : val ?? ''
 }
 
 export async function assertPublicationApiAuth(
-  request: Request | { headers: Record<string, string | string[] | undefined>; url: string; method: string },
+  request: PublicationRouteRequest,
   requiredScopes: PublicationTokenScope[] = []
 ): Promise<PublicationAuthContext> {
   const configuredTokens = (process.env.PUBLICATION_API_TOKEN ?? process.env.PUBLICATION_API_TOKENS ?? '')
@@ -147,11 +152,11 @@ export async function assertPublicationApiAuth(
     )
   }
 
-  const authorizationHeader = getHeaderValue(request as any, 'authorization')
+  const authorizationHeader = getHeaderValue(request, 'authorization')
   const bearerToken = authorizationHeader.startsWith('Bearer ')
     ? authorizationHeader.slice('Bearer '.length).trim()
     : ''
-  const headerToken = getHeaderValue(request as any, PUBLICATION_API_HEADER).trim()
+  const headerToken = getHeaderValue(request, PUBLICATION_API_HEADER).trim()
   const token = bearerToken || headerToken
 
   const isStaticTokenValid = Boolean(token) && configuredTokens.includes(token)

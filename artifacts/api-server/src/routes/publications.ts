@@ -2,6 +2,7 @@ import { Router } from 'express'
 import cookieParser from 'cookie-parser'
 import multer from 'multer'
 import { setPublicationAdminRequestContext, clearPublicationAdminRequestContext } from '../publication-lib/publication-admin-express.js'
+import type { PublicationTokenScope } from '../publication-lib/publication-tokens.js'
 
 // Lazy imports to avoid circular deps
 async function getPublicationPlatform() {
@@ -91,9 +92,7 @@ const router = Router()
 // Middleware to wire request context for auth stores
 router.use(cookieParser())
 router.use((req, res, next) => {
-  setPublicationAdminRequestContext(req as any, res as any)
-  res.on('finish', clearPublicationAdminRequestContext)
-  next()
+  setPublicationAdminRequestContext(req, res, next)
 })
 
 const CORS_HEADERS = {
@@ -114,7 +113,7 @@ function handleError(res: any, error: unknown) {
       return res.status(error.status).json({
         error: error.message,
         code: error.code,
-        details: (error as any).details,
+        details: error.details,
       })
     }
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -143,9 +142,9 @@ router.post('/auth/local-login', async (req, res) => {
       return res.status(400).json({ error: 'Local admin sign-in is unavailable.' })
     }
     const user = await platform.adminAuthStore.signInWithPassword({ email: email || '', password: password || '' })
-    res.json({ ok: true, user })
+    return res.json({ ok: true, user })
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -178,12 +177,12 @@ router.post('/publications/admin/login', async (req, res) => {
 
     const issuedAt = new Date().toISOString()
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-    const scopes = ['mcp:connect', 'articles:read', 'articles:write', 'articles:publish', 'articles:delete', 'agent:generate', 'audit:read'] as any[]
+    const scopes: PublicationTokenScope[] = ['mcp:connect', 'articles:read', 'articles:write', 'articles:publish', 'articles:delete', 'agent:generate', 'audit:read']
     const tokenRecord = await createPublicationTokenInventoryRecord({ label: `Admin token for ${user.email ?? 'Publication admin'}`, scopes, issuedAt, expiresAt })
     const token = issuePublicationAccessToken({ tokenId: tokenRecord.id, label: tokenRecord.label, issuedAt: tokenRecord.issued_at, expiresAt: tokenRecord.expires_at, scopes: tokenRecord.scopes })
 
     await recordPublicationAuditEvent({
-      action: 'tokens.issue' as any,
+      action: 'tokens.issue',
       auth: createPublicationAdminAuthContext(user.email),
       route: '/api/publications/admin/login',
       method: 'POST',
@@ -191,13 +190,13 @@ router.post('/publications/admin/login', async (req, res) => {
     })
 
     const origin = `${req.protocol}://${req.get('host')}`
-    res.status(201).json({
+    return res.status(201).json({
       ok: true, user, token, tokenRecord,
       restBaseUrl: `${origin}/api/publications`,
       mcpEndpoint: `${origin}/api/publications/mcp`,
     })
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -209,7 +208,7 @@ router.get('/admin/articles-list', async (req, res) => {
     const platform = await getPublicationPlatform()
     await assertPublicationAdminSession('list admin articles')
     const articles = await platform.publicationStore.listArticles({ status: 'all', limit: 200 })
-    res.json({ articles: articles.articles.map((a: any) => ({
+    res.json({ articles: articles.map((a) => ({
       id: a.id, title: a.title, slug: a.slug, status: a.status, createdAt: a.created_at,
     })) })
   } catch (error) {
@@ -224,13 +223,13 @@ router.get('/admin/articles-list/:id', async (req, res) => {
     await assertPublicationAdminSession('view admin article')
     const article = await platform.publicationStore.getArticleByIdentifier(req.params.id)
     if (!article) return res.status(404).json({ error: 'Article not found', code: 'article_not_found' })
-    res.json({ article: {
+    return res.json({ article: {
       id: article.id, title: article.title, slug: article.slug,
       content_markdown: article.content_markdown, status: article.status,
       created_at: article.created_at, updated_at: article.updated_at,
     }})
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -247,16 +246,16 @@ router.post('/admin/articles', async (req, res) => {
     const article = await createPublicationArticle(normalizePublicationArticleMutationInput(req.body), auth)
 
     await recordPublicationAuditEvent({
-      action: 'articles.create' as any, auth,
+      action: 'articles.create', auth,
       route: '/api/admin/articles', method: 'POST',
       article: { id: article.id, slug: article.slug },
       metadata: { source: 'admin-editor' },
     })
 
     setCorsHeaders(res)
-    res.status(201).json({ article })
+    return res.status(201).json({ article })
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -271,7 +270,7 @@ router.patch('/admin/articles/:id', async (req, res) => {
     const article = await updatePublicationArticle(req.params.id, normalizePublicationArticleMutationInput(req.body), auth)
 
     await recordPublicationAuditEvent({
-      action: 'articles.update' as any, auth,
+      action: 'articles.update', auth,
       route: '/api/admin/articles/:id', method: 'PATCH',
       article: { id: article.id, slug: article.slug },
       metadata: { source: 'admin-editor' },
@@ -315,9 +314,9 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
     })
 
     const text = importResult.ir.sections.map((s: any) => s.text).join('\n\n').trim() || importResult.document.body
-    res.json({ text, markdown: importResult.markdown, ir: importResult.ir, warnings: importResult.warnings })
+    return res.json({ text, markdown: importResult.markdown, ir: importResult.ir, warnings: importResult.warnings })
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -331,12 +330,12 @@ router.get('/publications/articles', async (req, res) => {
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
     const q = req.query as Record<string, string>
-    const isPublicRequest = !hasPublicationApiCredentials(req as any)
+    const isPublicRequest = !hasPublicationApiCredentials(req)
     const requestedStatus = q.status === 'draft' || q.status === 'published' || q.status === 'all' ? q.status : 'published'
 
     let auth: any = null
-    if (hasPublicationApiCredentials(req as any)) {
-      auth = await assertPublicationApiAuth(req as any, ['articles:read'])
+    if (hasPublicationApiCredentials(req)) {
+      auth = await assertPublicationApiAuth(req, ['articles:read'])
     }
 
     const tags = [...(Array.isArray(q.tag) ? q.tag : q.tag ? [q.tag] : []),
@@ -356,7 +355,7 @@ router.get('/publications/articles', async (req, res) => {
 
     if (auth) {
       await recordPublicationAuditEvent({
-        action: 'articles.list' as any, auth,
+        action: 'articles.list', auth,
         route: '/api/publications/articles', method: 'GET',
       })
     }
@@ -372,18 +371,18 @@ router.post('/publications/articles', async (req, res) => {
     setCorsHeaders(res)
     const { assertPublicationApiAuth, createPublicationArticle, normalizePublicationArticleMutationInput } = await getPublicationService()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
-    const auth = await assertPublicationApiAuth(req as any, ['articles:write'])
+    const auth = await assertPublicationApiAuth(req, ['articles:write'])
     const article = await createPublicationArticle(normalizePublicationArticleMutationInput(req.body), auth)
 
     await recordPublicationAuditEvent({
-      action: 'articles.create' as any, auth,
+      action: 'articles.create', auth,
       route: '/api/publications/articles', method: 'POST',
       article: { id: article.id, slug: article.slug },
     })
 
-    res.status(201).json({ article })
+    return res.status(201).json({ article })
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -397,10 +396,10 @@ router.get('/publications/articles/:identifier', async (req, res) => {
     const includeContent = req.query.includeContent !== 'false'
     const article = await getPublicationArticle(req.params.identifier, includeContent)
 
-    if (hasPublicationApiCredentials(req as any)) {
-      const auth = await assertPublicationApiAuth(req as any, ['articles:read'])
+    if (hasPublicationApiCredentials(req)) {
+      const auth = await assertPublicationApiAuth(req, ['articles:read'])
       await recordPublicationAuditEvent({
-        action: 'articles.read' as any, auth,
+        action: 'articles.read', auth,
         route: '/api/publications/articles/:identifier', method: 'GET',
         article: { id: article.id, slug: article.slug },
       })
@@ -420,11 +419,11 @@ router.patch('/publications/articles/:identifier', async (req, res) => {
     setCorsHeaders(res)
     const { assertPublicationApiAuth, updatePublicationArticle, normalizePublicationArticleMutationInput } = await getPublicationService()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
-    const auth = await assertPublicationApiAuth(req as any, ['articles:write'])
+    const auth = await assertPublicationApiAuth(req, ['articles:write'])
     const article = await updatePublicationArticle(req.params.identifier, normalizePublicationArticleMutationInput(req.body), auth)
 
     await recordPublicationAuditEvent({
-      action: 'articles.update' as any, auth,
+      action: 'articles.update', auth,
       route: '/api/publications/articles/:identifier', method: 'PATCH',
       article: { id: article.id, slug: article.slug },
     })
@@ -440,11 +439,11 @@ router.delete('/publications/articles/:identifier', async (req, res) => {
     setCorsHeaders(res)
     const { assertPublicationApiAuth, deletePublicationArticle } = await getPublicationService()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
-    const auth = await assertPublicationApiAuth(req as any, ['articles:delete'])
+    const auth = await assertPublicationApiAuth(req, ['articles:delete'])
     await deletePublicationArticle(req.params.identifier, auth)
 
     await recordPublicationAuditEvent({
-      action: 'articles.delete' as any, auth,
+      action: 'articles.delete', auth,
       route: '/api/publications/articles/:identifier', method: 'DELETE',
     })
 
@@ -459,11 +458,11 @@ router.post('/publications/articles/:identifier/publish', async (req, res) => {
     setCorsHeaders(res)
     const { assertPublicationApiAuth, publishPublicationArticle } = await getPublicationService()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
-    const auth = await assertPublicationApiAuth(req as any, ['articles:publish'])
+    const auth = await assertPublicationApiAuth(req, ['articles:publish'])
     const article = await publishPublicationArticle(req.params.identifier, auth)
 
     await recordPublicationAuditEvent({
-      action: 'articles.publish' as any, auth,
+      action: 'articles.publish', auth,
       route: '/api/publications/articles/:identifier/publish', method: 'POST',
       article: { id: article.id, slug: article.slug },
     })
@@ -479,11 +478,11 @@ router.post('/publications/articles/:identifier/unpublish', async (req, res) => 
     setCorsHeaders(res)
     const { assertPublicationApiAuth, unpublishPublicationArticle } = await getPublicationService()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
-    const auth = await assertPublicationApiAuth(req as any, ['articles:publish'])
+    const auth = await assertPublicationApiAuth(req, ['articles:publish'])
     const article = await unpublishPublicationArticle(req.params.identifier, auth)
 
     await recordPublicationAuditEvent({
-      action: 'articles.publish' as any, auth,
+      action: 'articles.publish', auth,
       route: '/api/publications/articles/:identifier/unpublish', method: 'POST',
       article: { id: article.id, slug: article.slug },
     })
@@ -502,11 +501,11 @@ router.get('/publications/articles/:identifier/versions', async (req, res) => {
       return { resolvePublicationRouteAuth: m.resolvePublicationRouteAuth, listPublicationArticleVersions: svc.listPublicationArticleVersions }
     })
     const { recordPublicationAuditEvent } = await getPublicationAudit()
-    const auth = await resolvePublicationRouteAuth(req as any, ['articles:read'], 'view article version history')
+    const auth = await resolvePublicationRouteAuth(req, ['articles:read'], 'view article version history')
     const result = await listPublicationArticleVersions(req.params.identifier)
 
     await recordPublicationAuditEvent({
-      action: 'versions.list' as any, auth,
+      action: 'versions.list', auth,
       route: '/api/publications/articles/:identifier/versions', method: 'GET',
       article: { id: result.article.id, slug: result.article.slug },
     })
@@ -524,11 +523,11 @@ router.post('/publications/articles/:identifier/versions/:versionId/restore', as
     const { restorePublicationArticleVersion } = await getPublicationService()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
-    const auth = await resolvePublicationRouteAuth(req as any, ['articles:write'], 'restore article versions')
+    const auth = await resolvePublicationRouteAuth(req, ['articles:write'], 'restore article versions')
     const result = await restorePublicationArticleVersion(req.params.identifier, req.params.versionId, auth)
 
     await recordPublicationAuditEvent({
-      action: 'versions.restore' as any, auth,
+      action: 'versions.restore', auth,
       route: '/api/publications/articles/:identifier/versions/:versionId/restore', method: 'POST',
       article: { id: result.article.id, slug: result.article.slug },
     })
@@ -552,7 +551,7 @@ router.get('/publications/audit', async (req, res) => {
     const events = await listPublicationAuditEvents(limit)
 
     await recordPublicationAuditEvent({
-      action: 'audit.read' as any,
+      action: 'audit.read',
       auth: createPublicationAdminAuthContext(user.email),
       route: '/api/publications/audit', method: 'GET',
       metadata: { limit },
@@ -574,7 +573,7 @@ router.post('/publications/export', async (req, res) => {
     const { recordPublicationAuditEvent } = await getPublicationAudit()
     const { PublicationApiError } = await getPublicationErrors()
 
-    const auth = await assertPublicationApiAuth(req as any, ['articles:read'])
+    const auth = await assertPublicationApiAuth(req, ['articles:read'])
     const body = req.body || {}
     let markdown = ''
 
@@ -591,7 +590,7 @@ router.post('/publications/export', async (req, res) => {
     const format = ['markdown', 'json', 'latex', 'docx', 'pdf'].includes(body.format) ? body.format : (() => { throw new PublicationApiError(400, 'invalid_export_format', 'format must be: markdown, json, latex, docx, pdf') })()
     const exportResult = await exportPublicationDocument({ markdown, format, fileName: body.fileName, fallbackTitle: body.fallbackTitle })
 
-    await recordPublicationAuditEvent({ action: 'articles.read' as any, auth, route: '/api/publications/export', method: 'POST', metadata: { format } })
+    await recordPublicationAuditEvent({ action: 'articles.read', auth, route: '/api/publications/export', method: 'POST', metadata: { format } })
     res.json({ exportResult })
   } catch (error) {
     handleError(res, error)
@@ -606,7 +605,7 @@ router.post('/publications/import', upload.single('file'), async (req, res) => {
     const { recordPublicationAuditEvent } = await getPublicationAudit()
     const { PublicationApiError } = await getPublicationErrors()
 
-    const auth = await assertPublicationApiAuth(req as any, ['articles:write'])
+    const auth = await assertPublicationApiAuth(req, ['articles:write'])
     let payload: { fileName: string; mimeType?: string; data: Uint8Array | Buffer }
 
     if (req.file) {
@@ -625,7 +624,7 @@ router.post('/publications/import', upload.single('file'), async (req, res) => {
     }
 
     const result = await importPublicationDocument(payload)
-    await recordPublicationAuditEvent({ action: 'articles.create' as any, auth, route: '/api/publications/import', method: 'POST', metadata: { sourceFormat: result.format } })
+    await recordPublicationAuditEvent({ action: 'articles.create', auth, route: '/api/publications/import', method: 'POST', metadata: { sourceFormat: result.format } })
     res.json({ importResult: result })
   } catch (error) {
     handleError(res, error)
@@ -641,7 +640,7 @@ router.get('/publications/media', async (req, res) => {
     const { listPublicationMedia } = await getPublicationMedia()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
-    const auth = await resolvePublicationRouteAuth(req as any, ['articles:read'], 'browse publication media')
+    const auth = await resolvePublicationRouteAuth(req, ['articles:read'], 'browse publication media')
     const q = req.query as Record<string, string>
     const media = await listPublicationMedia({
       articleIdentifier: q.articleIdentifier,
@@ -649,7 +648,7 @@ router.get('/publications/media', async (req, res) => {
       limit: q.limit ? Number(q.limit) : undefined,
     })
 
-    await recordPublicationAuditEvent({ action: 'media.list' as any, auth, route: '/api/publications/media', method: 'GET' })
+    await recordPublicationAuditEvent({ action: 'media.list', auth, route: '/api/publications/media', method: 'GET' })
     res.json(media)
   } catch (error) {
     handleError(res, error)
@@ -663,7 +662,7 @@ router.post('/publications/media', upload.single('file'), async (req, res) => {
     const { uploadPublicationMedia } = await getPublicationMedia()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
-    const auth = await resolvePublicationRouteAuth(req as any, ['articles:write'], 'upload publication media')
+    const auth = await resolvePublicationRouteAuth(req, ['articles:write'], 'upload publication media')
     let uploadInput: any
 
     if (req.file) {
@@ -682,7 +681,7 @@ router.post('/publications/media', upload.single('file'), async (req, res) => {
     }
 
     const result = await uploadPublicationMedia(uploadInput)
-    await recordPublicationAuditEvent({ action: 'media.upload' as any, auth, route: '/api/publications/media', method: 'POST' })
+    await recordPublicationAuditEvent({ action: 'media.upload', auth, route: '/api/publications/media', method: 'POST' })
     res.json(result)
   } catch (error) {
     handleError(res, error)
@@ -694,11 +693,17 @@ router.delete('/publications/media', async (req, res) => {
     setCorsHeaders(res)
     const { resolvePublicationRouteAuth } = await getPublicationRouteAuth()
     const { deletePublicationMedia } = await getPublicationMedia()
+    const { PublicationApiError } = await getPublicationErrors()
 
-    await resolvePublicationRouteAuth(req as any, ['articles:write'], 'delete publication media')
-    const { articleSlug, fileName } = req.body || {}
-    await deletePublicationMedia({ articleSlug, fileName })
-    res.json({ ok: true })
+    await resolvePublicationRouteAuth(req, ['articles:write'], 'delete publication media')
+    const path = typeof req.body?.path === 'string' && req.body.path.trim()
+      ? req.body.path.trim()
+      : (typeof req.query?.path === 'string' ? req.query.path.trim() : '')
+    if (!path) {
+      throw new PublicationApiError(400, 'media_path_missing', 'A "path" field is required to delete media.')
+    }
+    const result = await deletePublicationMedia(path)
+    res.json(result)
   } catch (error) {
     handleError(res, error)
   }
@@ -719,7 +724,7 @@ router.get('/publications/tokens', async (req, res) => {
     const tokens = await listPublicationTokenInventory()
 
     await recordPublicationAuditEvent({
-      action: 'audit.read' as any,
+      action: 'audit.read',
       auth: createPublicationAdminAuthContext(user.email),
       route: '/api/publications/tokens', method: 'GET',
       metadata: { inventoryCount: tokens.length },
@@ -775,7 +780,7 @@ router.post('/publications/tokens', async (req, res) => {
       scopes: tokenRecord.scopes,
     })
 
-    await recordPublicationAuditEvent({ action: 'tokens.issue' as any, auth, route: '/api/publications/tokens', method: 'POST', metadata: { tokenId: tokenRecord.id } })
+    await recordPublicationAuditEvent({ action: 'tokens.issue', auth, route: '/api/publications/tokens', method: 'POST', metadata: { tokenId: tokenRecord.id } })
     res.status(201).json({ token, tokenRecord })
   } catch (error) {
     handleError(res, error)
@@ -793,7 +798,7 @@ router.post('/publications/tokens/:tokenId/revoke', async (req, res) => {
     const token = await revokePublicationTokenInventoryRecord(req.params.tokenId)
 
     await recordPublicationAuditEvent({
-      action: 'tokens.revoke' as any,
+      action: 'tokens.revoke',
       auth: createPublicationAdminAuthContext(user.email),
       route: '/api/publications/tokens/:tokenId/revoke', method: 'POST',
       metadata: { tokenId: token.id },
@@ -813,7 +818,7 @@ router.all('/publications/verify', async (req, res) => {
     if (req.method === 'GET') {
       const { assertPublicationApiAuth } = await getPublicationService()
       const { listPublicationVerifiers, listPublicationPresets } = await getPublicationVerifiers()
-      const auth = await assertPublicationApiAuth(req as any, ['articles:read'])
+      const auth = await assertPublicationApiAuth(req, ['articles:read'])
       return res.json({ verifiers: listPublicationVerifiers(auth), presets: listPublicationPresets(auth) })
     }
     if (req.method === 'POST') {
@@ -823,7 +828,7 @@ router.all('/publications/verify', async (req, res) => {
       const { recordPublicationAuditEvent } = await getPublicationAudit()
       const { PublicationApiError } = await getPublicationErrors()
 
-      const auth = await assertPublicationApiAuth(req as any, ['articles:read'])
+      const auth = await assertPublicationApiAuth(req, ['articles:read'])
       const body = req.body || {}
       let markdown = ''
       if (typeof body.markdown === 'string' && body.markdown.trim()) {
@@ -843,11 +848,12 @@ router.all('/publications/verify', async (req, res) => {
           ? { result: await verifyPublicationMarkdown(markdown, body.verifierId.trim(), fallbackTitle, auth), ir: buildPublicationDocumentIR(markdown, fallbackTitle) }
           : (() => { throw new PublicationApiError(400, 'verification_target_missing', 'Provide verifierId or presetId') })()
 
-      await recordPublicationAuditEvent({ action: 'articles.read' as any, auth, route: '/api/publications/verify', method: 'POST' })
+      await recordPublicationAuditEvent({ action: 'articles.read', auth, route: '/api/publications/verify', method: 'POST' })
       return res.json(response)
     }
+    return res.status(405).json({ error: 'Method not allowed', code: 'method_not_allowed' })
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -860,10 +866,10 @@ router.post('/publications/agent', async (req, res) => {
     const { generatePublicationDraft } = await getPublicationAgent()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
-    const auth = await assertPublicationApiAuth(req as any, ['agent:generate'])
+    const auth = await assertPublicationApiAuth(req, ['agent:generate'])
     const draft = await generatePublicationDraft(req.body)
 
-    await recordPublicationAuditEvent({ action: 'agent.generate' as any, auth, route: '/api/publications/agent', method: 'POST' })
+    await recordPublicationAuditEvent({ action: 'agent.generate', auth, route: '/api/publications/agent', method: 'POST' })
     res.json({ draft })
   } catch (error) {
     handleError(res, error)
@@ -892,7 +898,7 @@ router.get('/publications/mcp', async (req, res) => {
     const { handleMcpGet } = await import('../publication-routes/publications/mcp/route.js')
     return handleMcpGet(req, res)
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 
@@ -902,7 +908,7 @@ router.post('/publications/mcp', async (req, res) => {
     const { handleMcpPost } = await import('../publication-routes/publications/mcp/route.js')
     return handleMcpPost(req, res)
   } catch (error) {
-    handleError(res, error)
+    return handleError(res, error)
   }
 })
 

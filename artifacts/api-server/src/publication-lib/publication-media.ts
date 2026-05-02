@@ -117,7 +117,19 @@ async function resolvePublicationMediaBuffer(input: {
 
   const sourceUrl = input.sourceUrl?.trim()
   if (sourceUrl) {
-    const response = await fetch(sourceUrl)
+    assertSafePublicationMediaSourceUrl(sourceUrl)
+    await assertSafePublicationMediaSourceUrlDns(sourceUrl)
+    const { fetch: undiciFetch } = await import('undici')
+    const dispatcher = await createSafePublicationMediaDispatcher()
+    const response = await undiciFetch(sourceUrl, { redirect: 'manual', dispatcher })
+
+    if (response.status >= 300 && response.status < 400) {
+      throw new PublicationApiError(
+        400,
+        'media_source_redirect_blocked',
+        'Redirects are not allowed when fetching remote media to prevent SSRF.',
+      )
+    }
 
     if (!response.ok) {
       throw new PublicationApiError(
@@ -176,6 +188,133 @@ function sanitizePublicationMediaFileName(fileName: string) {
     .trim()
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/-+/g, '-')
+}
+
+function assertSafePublicationMediaSourceUrl(rawUrl: string) {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    throw new PublicationApiError(400, 'media_source_url_invalid', 'The provided sourceUrl is not a valid URL.')
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new PublicationApiError(400, 'media_source_url_protocol', 'Only http(s) URLs are allowed for sourceUrl.')
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new PublicationApiError(400, 'media_source_url_credentials', 'Embedded credentials in sourceUrl are not allowed.')
+  }
+
+  const hostname = parsed.hostname.toLowerCase()
+  if (!hostname) {
+    throw new PublicationApiError(400, 'media_source_url_host', 'sourceUrl must include a host.')
+  }
+
+  if (
+    hostname === 'localhost' ||
+    hostname === '0.0.0.0' ||
+    hostname === '::' ||
+    hostname === '::1' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal')
+  ) {
+    throw new PublicationApiError(403, 'media_source_url_blocked', 'Local/internal hosts are not allowed for sourceUrl.')
+  }
+
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+    const parts = hostname.split('.').map(Number)
+    const [a, b] = parts
+    const isPrivate =
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b !== undefined && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a === 0 ||
+      a >= 224
+    if (isPrivate) {
+      throw new PublicationApiError(403, 'media_source_url_blocked', 'Private/loopback IPs are not allowed for sourceUrl.')
+    }
+  }
+
+  if (hostname.includes(':')) {
+    throw new PublicationApiError(403, 'media_source_url_blocked', 'IPv6 hosts are not allowed for sourceUrl.')
+  }
+}
+
+function isPrivateOrReservedIPv4(ip: string): boolean {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true
+  const [a, b] = parts
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a === 0 ||
+    a >= 224
+  )
+}
+
+async function assertSafePublicationMediaSourceUrlDns(rawUrl: string) {
+  const { lookup } = await import('node:dns/promises')
+  const parsed = new URL(rawUrl)
+  let addresses: { address: string; family: number }[]
+  try {
+    addresses = await lookup(parsed.hostname, { all: true })
+  } catch {
+    throw new PublicationApiError(400, 'media_source_url_unresolvable', 'sourceUrl host could not be resolved.')
+  }
+  for (const { address, family } of addresses) {
+    if (family === 6) {
+      throw new PublicationApiError(403, 'media_source_url_blocked', 'IPv6 destinations are not allowed for sourceUrl.')
+    }
+    if (isPrivateOrReservedIPv4(address)) {
+      throw new PublicationApiError(403, 'media_source_url_blocked', 'sourceUrl resolves to a private/reserved IP address.')
+    }
+  }
+}
+
+// Custom undici dispatcher whose connector re-validates the resolved IP at
+// connect time (closing the DNS-rebinding/TOCTOU window between preflight DNS
+// validation and the actual TCP connect).
+async function createSafePublicationMediaDispatcher() {
+  const { Agent, buildConnector } = await import('undici')
+  const baseConnector = buildConnector({})
+  return new Agent({
+    connect: (opts, cb) => {
+      baseConnector(opts, (err, socket) => {
+        if (err || !socket) return cb(err, socket as never)
+        const remote = (socket as unknown as { remoteAddress?: string; remoteFamily?: string }).remoteAddress
+        const family = (socket as unknown as { remoteFamily?: string }).remoteFamily
+        if (!remote) {
+          socket.destroy()
+          return cb(
+            new PublicationApiError(403, 'media_source_url_blocked', 'sourceUrl connection target could not be verified.'),
+            null as never,
+          )
+        }
+        if (family === 'IPv6') {
+          socket.destroy()
+          return cb(
+            new PublicationApiError(403, 'media_source_url_blocked', 'sourceUrl resolved to an IPv6 destination at connect time.'),
+            null as never,
+          )
+        }
+        if (isPrivateOrReservedIPv4(remote)) {
+          socket.destroy()
+          return cb(
+            new PublicationApiError(403, 'media_source_url_blocked', 'sourceUrl resolved to a private/reserved IP at connect time.'),
+            null as never,
+          )
+        }
+        cb(null, socket)
+      })
+    },
+  })
 }
 
 function normalizePublicationMediaPath(path: string) {

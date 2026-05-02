@@ -1,21 +1,52 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createClient } from '@supabase/supabase-js'
 import type { AdminAuthStore, PublicationAdminUser } from '@publication-mcp-studio/platform'
 import type { Request, Response } from 'express'
 
 const LOCAL_ADMIN_COOKIE = 'publication_admin_session'
 
-// Thread-local style storage for request/response context
-let _currentReq: Request | null = null
-let _currentRes: Response | null = null
+interface PublicationAdminRequestContext {
+  req: Request
+  res: Response
+}
 
-export function setPublicationAdminRequestContext(req: Request, res: Response) {
-  _currentReq = req
-  _currentRes = res
+const requestContextStorage = new AsyncLocalStorage<PublicationAdminRequestContext>()
+
+export function runWithPublicationAdminRequestContext<T>(
+  req: Request,
+  res: Response,
+  fn: () => T,
+): T {
+  return requestContextStorage.run({ req, res }, fn)
+}
+
+// Backwards-compatible API used by Express middleware. Prefer
+// `runWithPublicationAdminRequestContext` for request-scoped isolation; this
+// helper enters a new AsyncLocalStorage scope and chains it onto `next()` so
+// downstream async handlers resolve the correct request/response.
+export function setPublicationAdminRequestContext(
+  req: Request,
+  res: Response,
+  next?: () => void,
+) {
+  if (next) {
+    requestContextStorage.run({ req, res }, next)
+    return
+  }
+  requestContextStorage.enterWith({ req, res })
 }
 
 export function clearPublicationAdminRequestContext() {
-  _currentReq = null
-  _currentRes = null
+  // No-op retained for backwards compatibility; AsyncLocalStorage scopes exit
+  // automatically when the request handler completes.
+}
+
+function getCurrentRequest(): Request | null {
+  return requestContextStorage.getStore()?.req ?? null
+}
+
+function getCurrentResponse(): Response | null {
+  return requestContextStorage.getStore()?.res ?? null
 }
 
 export function createExpressLocalPublicationAdminAuthStore(options: {
@@ -29,7 +60,7 @@ export function createExpressLocalPublicationAdminAuthStore(options: {
     kind: 'local',
 
     async getCurrentUser() {
-      const req = _currentReq
+      const req = getCurrentRequest()
       if (!req) return null
       const session = (req.cookies as Record<string, string>)[LOCAL_ADMIN_COOKIE]?.trim()
       if (!session) return null
@@ -42,7 +73,7 @@ export function createExpressLocalPublicationAdminAuthStore(options: {
     },
 
     async signOut() {
-      const res = _currentRes
+      const res = getCurrentResponse()
       if (res) {
         res.clearCookie(LOCAL_ADMIN_COOKIE, { path: '/' })
       }
@@ -67,7 +98,7 @@ export function createExpressLocalPublicationAdminAuthStore(options: {
         }
       }
 
-      const res = _currentRes
+      const res = getCurrentResponse()
       if (res) {
         res.cookie(LOCAL_ADMIN_COOKIE, encodeURIComponent(email), {
           httpOnly: true,
@@ -92,10 +123,9 @@ export function createExpressSupabasePublicationAdminAuthStore(): AdminAuthStore
     kind: 'supabase',
 
     async getCurrentUser() {
-      const req = _currentReq
+      const req = getCurrentRequest()
       if (!req) return null
 
-      // Extract auth token from cookie or header
       const token = (req.cookies as Record<string, string>)['sb-access-token'] ||
         req.headers.authorization?.replace('Bearer ', '')
 
@@ -117,7 +147,7 @@ export function createExpressSupabasePublicationAdminAuthStore(): AdminAuthStore
     },
 
     async signOut() {
-      const res = _currentRes
+      const res = getCurrentResponse()
       if (res) {
         res.clearCookie('sb-access-token', { path: '/' })
       }
