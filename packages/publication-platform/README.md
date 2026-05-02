@@ -26,6 +26,10 @@ Current public surface:
 - `src/supabase.ts` for the Supabase adapter
 - `src/template.ts` for scaffolding a new adapter
 
+Published npm package:
+
+- https://www.npmjs.com/package/@publication-mcp-studio/platform
+
 Important boundary:
 
 - this package is intentionally stack-agnostic
@@ -42,7 +46,7 @@ Update guidance:
 Selection behavior:
 
 - `PUBLICATION_PLATFORM_ADAPTER=local` forces the filesystem adapter
-- `PUBLICATION_PLATFORM_ADAPTER=neon` forces the Neon adapter
+- `PUBLICATION_PLATFORM_ADAPTER=neon` forces the experimental Neon adapter
 - `PUBLICATION_PLATFORM_ADAPTER=supabase` forces the Supabase adapter
 - if no explicit adapter is set, the package auto-selects `supabase` when the required Supabase env vars are present, then `neon` when a Neon database URL is present, and otherwise falls back to `local`
 - `PUBLICATION_LOCAL_ROOT_DIR` lets another host app point local persistence at its own project root
@@ -63,7 +67,14 @@ Host app integration:
 2. Provide `adminAuthStore` from the host stack.
 3. Wire your own routes or use this repo as the hosted service.
 
+Neon status:
+
+- the Neon adapter in `0.1.0` is experimental after live integration testing found blocking Neon HTTP driver issues around `SELECT *`, `RETURNING *`, nullable `text[]` bindings, and first-run migrations
+- prefer `local` or `supabase` for production until a `0.1.1` patch lands
+- see the repo feedback tracker for the concrete fix list
+
 See:
 
-- [docs/publication-integration-guide.md](/Users/olson/Software/publication-mcp-studio/docs/publication-integration-guide.md)
-- [templates/nextjs-embedded/README.md](/Users/olson/Software/publication-mcp-studio/templates/nextjs-embedded/README.md)
+- [docs/publication-integration-guide.md](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/publication-integration-guide.md)
+- [docs/sdk-integration-feedback-v0.1.0.md](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/sdk-integration-feedback-v0.1.0.md)
+- [templates/nextjs-embedded/README.md](https://github.com/son-of-ole/publication-mcp-studio/blob/main/templates/nextjs-embedded/README.md)

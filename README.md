@@ -15,6 +15,20 @@ It supports both:
 - hosted integration through REST/MCP plus `@publication-mcp-studio/client`
 - embedded integration through `@publication-mcp-studio/platform`
 
+## NPM SDK
+
+The integration SDK is published on npm under the `@publication-mcp-studio` scope:
+
+```bash
+npm install @publication-mcp-studio/client
+npm install @publication-mcp-studio/platform
+```
+
+- [`@publication-mcp-studio/client`](https://www.npmjs.com/package/@publication-mcp-studio/client) is the fetch-based SDK for apps that call a hosted Publication MCP Studio service over REST and MCP.
+- [`@publication-mcp-studio/platform`](https://www.npmjs.com/package/@publication-mcp-studio/platform) is the adapter/platform SDK for apps that want to embed publication persistence directly into their own backend.
+
+For outside stacks, start with [docs/publication-integration-guide.md](./docs/publication-integration-guide.md). Current v0.1.0 integration feedback and v0.1.1 priorities are tracked in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
+
 ## What This Repo Contains
 
 - `src/app/publications` for the public-facing publication library and article pages
@@ -93,8 +107,8 @@ It defines installable interfaces for:
 Current adapters:
 
 - `supabase`
-- `neon`
 - `local`
+- `neon` (experimental in v0.1.0; see [Neon v0.1.0 caveat](#neon-v010-caveat))
 
 To integrate this into another stack later, add a new adapter that satisfies those interfaces and update the platform selection logic in `packages/publication-platform/src/index.ts`.
 
@@ -138,17 +152,22 @@ npm run check
 
 Integration examples:
 
-- [docs/publication-integration-guide.md](/Users/olson/Software/publication-mcp-studio/docs/publication-integration-guide.md)
-- [templates/nextjs-embedded/README.md](/Users/olson/Software/publication-mcp-studio/templates/nextjs-embedded/README.md)
-- [templates/hosted-client/README.md](/Users/olson/Software/publication-mcp-studio/templates/hosted-client/README.md)
+- [docs/publication-integration-guide.md](./docs/publication-integration-guide.md)
+- [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md)
+- [templates/nextjs-embedded/README.md](./templates/nextjs-embedded/README.md)
+- [templates/hosted-client/README.md](./templates/hosted-client/README.md)
 
 ## Neon
+
+### Neon v0.1.0 Caveat
+
+The `@publication-mcp-studio/platform@0.1.0` Neon adapter is experimental. Live testing against stock Neon HTTP/Postgres environments found blocking adapter bugs around `SELECT *` type decoding, `RETURNING *`, nullable `text[]` bindings, and missing first-run migration helpers. Until v0.1.1 lands, prefer the `local` or `supabase` adapter for production integrations, or use a host-owned custom Neon adapter that applies the workarounds documented in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
 
 The Neon adapter uses Postgres for articles, versions, tokens, audit events, and media metadata.
 
 Setup:
 
-1. Run [neon_schema.sql](/Users/olson/Software/publication-mcp-studio/neon_schema.sql) in your Neon SQL editor.
+1. Run [neon_schema.sql](./neon_schema.sql) in your Neon SQL editor.
 2. Set `NEON_DATABASE_URL` to your Neon connection string.
 3. Set `PUBLICATION_PLATFORM_ADAPTER=neon` if you want to force Neon instead of auto-detection.
 4. Set `PUBLICATION_ADMIN_EMAIL` and `PUBLICATION_ADMIN_PASSWORD` for admin sign-in.

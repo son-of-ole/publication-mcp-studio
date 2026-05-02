@@ -48,6 +48,18 @@ Good fit for:
   - verification helpers
   - MCP JSON-RPC helper methods
 
+Install from npm:
+
+```bash
+npm install @publication-mcp-studio/client
+npm install @publication-mcp-studio/platform
+```
+
+Package pages:
+
+- [`@publication-mcp-studio/client`](https://www.npmjs.com/package/@publication-mcp-studio/client)
+- [`@publication-mcp-studio/platform`](https://www.npmjs.com/package/@publication-mcp-studio/platform)
+
 ## Fastest Paths
 
 ### Fastest hosted setup
@@ -65,7 +77,9 @@ Good fit for:
 3. supply a host-specific `adminAuthStore`
 4. move to Neon or Supabase when shared persistence is needed
 
+Note: the Neon adapter is experimental in `@publication-mcp-studio/platform@0.1.0`. Live testing found blocking Neon HTTP issues that are tracked in [sdk-integration-feedback-v0.1.0.md](./sdk-integration-feedback-v0.1.0.md). Prefer `local` or `supabase` for production until the Neon patch release lands.
+
 ## Templates
 
-- [templates/nextjs-embedded/README.md](/Users/olson/Software/publication-mcp-studio/templates/nextjs-embedded/README.md)
-- [templates/hosted-client/README.md](/Users/olson/Software/publication-mcp-studio/templates/hosted-client/README.md)
+- [templates/nextjs-embedded/README.md](../templates/nextjs-embedded/README.md)
+- [templates/hosted-client/README.md](../templates/hosted-client/README.md)
