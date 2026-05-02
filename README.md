@@ -27,7 +27,7 @@ npm install @publication-mcp-studio/platform
 - [`@publication-mcp-studio/client`](https://www.npmjs.com/package/@publication-mcp-studio/client) is the fetch-based SDK for apps that call a hosted Publication MCP Studio service over REST and MCP.
 - [`@publication-mcp-studio/platform`](https://www.npmjs.com/package/@publication-mcp-studio/platform) is the adapter/platform SDK for apps that want to embed publication persistence directly into their own backend.
 
-For outside stacks, start with [docs/publication-integration-guide.md](./docs/publication-integration-guide.md). Current v0.1.0 integration feedback and v0.1.1 priorities are tracked in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
+For outside stacks, start with [docs/publication-integration-guide.md](./docs/publication-integration-guide.md). Current v0.1.0 integration feedback and the next Neon/auth/productization priorities are tracked in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
 
 ## What This Repo Contains
 
@@ -161,7 +161,7 @@ Integration examples:
 
 ### Neon v0.1.0 Caveat
 
-The `@publication-mcp-studio/platform@0.1.0` Neon adapter is experimental. Live testing against stock Neon HTTP/Postgres environments found blocking adapter bugs around `SELECT *` type decoding, `RETURNING *`, nullable `text[]` bindings, and missing first-run migration helpers. Until v0.1.1 lands, prefer the `local` or `supabase` adapter for production integrations, or use a host-owned custom Neon adapter that applies the workarounds documented in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
+The current `@publication-mcp-studio/platform` Neon adapter is experimental. Live testing against stock Neon HTTP/Postgres environments found blocking adapter bugs around `SELECT *` type decoding, `RETURNING *`, nullable `text[]` bindings, and missing first-run migration helpers. Until a Neon-fix release lands, prefer the `local` or `supabase` adapter for production integrations, or use a host-owned custom Neon adapter that applies the workarounds documented in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
 
 The Neon adapter uses Postgres for articles, versions, tokens, audit events, and media metadata.
 

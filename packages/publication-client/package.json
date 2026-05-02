@@ -1,6 +1,6 @@
 {
   "name": "@publication-mcp-studio/client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Client SDK for integrating external apps with a hosted Publication MCP Studio deployment.",
   "license": "MIT",

@@ -69,8 +69,8 @@ Host app integration:
 
 Neon status:
 
-- the Neon adapter in `0.1.0` is experimental after live integration testing found blocking Neon HTTP driver issues around `SELECT *`, `RETURNING *`, nullable `text[]` bindings, and first-run migrations
-- prefer `local` or `supabase` for production until a `0.1.1` patch lands
+- the current Neon adapter is experimental after live integration testing found blocking Neon HTTP driver issues around `SELECT *`, `RETURNING *`, nullable `text[]` bindings, and first-run migrations
+- prefer `local` or `supabase` for production until a Neon-fix release lands
 - see the repo feedback tracker for the concrete fix list
 
 See:

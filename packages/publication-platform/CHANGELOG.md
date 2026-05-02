@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Clarified that the Neon adapter remains experimental until a future Neon-fix release, rather than implying the documentation-only `0.1.1` release fixed it.
+
 ## 0.1.1
 
 - Documented that `@publication-mcp-studio/platform@0.1.0` is experimental for Neon HTTP integrations until the adapter avoids `SELECT *`, `RETURNING *`, and nullable `text[]` bindings.

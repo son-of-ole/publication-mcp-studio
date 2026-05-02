@@ -11,7 +11,7 @@ The goal is to keep the repo honest about what works today, what blocked an outs
 
 The SDK direction is right: a hosted client package plus an embedded platform/adapter package is the correct integration model. The v0.1.0 release also proved that external consumers can install the packages from npm.
 
-The biggest gap is productization. A host still has to write too much route, auth, migration, and metadata glue. The highest-impact next release is `v0.1.1`, focused on making Neon reliable, shipping migrations, making metadata explicit, and providing reference auth/routes.
+The biggest gap is productization. A host still has to write too much route, auth, migration, and metadata glue. The highest-impact next implementation release should focus on making Neon reliable, shipping migrations, making metadata explicit, and providing reference auth/routes.
 
 ## Blockers
 

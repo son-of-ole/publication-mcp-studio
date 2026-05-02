@@ -77,7 +77,7 @@ Package pages:
 3. supply a host-specific `adminAuthStore`
 4. move to Neon or Supabase when shared persistence is needed
 
-Note: the Neon adapter is experimental in `@publication-mcp-studio/platform@0.1.0`. Live testing found blocking Neon HTTP issues that are tracked in [sdk-integration-feedback-v0.1.0.md](./sdk-integration-feedback-v0.1.0.md). Prefer `local` or `supabase` for production until the Neon patch release lands.
+Note: the Neon adapter is experimental in the current `@publication-mcp-studio/platform` package. Live testing found blocking Neon HTTP issues that are tracked in [sdk-integration-feedback-v0.1.0.md](./sdk-integration-feedback-v0.1.0.md). Prefer `local` or `supabase` for production until a Neon-fix release lands.
 
 ## Templates
 
