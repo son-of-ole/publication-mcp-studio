@@ -87,15 +87,14 @@ export function createExpressLocalPublicationAdminAuthStore(options: {
         throw new Error('Email and password are required for a local admin session.')
       }
 
-      if (configuredAdminEmail || configuredAdminPassword) {
-        if (
-          !configuredAdminEmail ||
-          !configuredAdminPassword ||
-          email !== configuredAdminEmail ||
-          password !== configuredAdminPassword
-        ) {
-          throw new Error('Invalid admin credentials for this publication workspace.')
-        }
+      if (!configuredAdminEmail || !configuredAdminPassword) {
+        throw new Error(
+          'Local admin sign-in is disabled until PUBLICATION_ADMIN_EMAIL and PUBLICATION_ADMIN_PASSWORD are configured.',
+        )
+      }
+
+      if (email !== configuredAdminEmail || password !== configuredAdminPassword) {
+        throw new Error('Invalid admin credentials for this publication workspace.')
       }
 
       const res = getCurrentResponse()
