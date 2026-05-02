@@ -12,9 +12,15 @@ function notImplemented(adapterName: string, methodName: string): never {
 export function createTemplatePublicationPlatform(adapterName = 'custom'): PublicationPlatform {
   return {
     kind: 'local',
+    async ensureSchema() {
+      return notImplemented(adapterName, 'ensureSchema')
+    },
     publicationStore: {
       async listArticles() {
         return notImplemented(adapterName, 'publicationStore.listArticles')
+      },
+      async countArticles() {
+        return notImplemented(adapterName, 'publicationStore.countArticles')
       },
       async getArticleByIdentifier() {
         return notImplemented(adapterName, 'publicationStore.getArticleByIdentifier')

@@ -44,6 +44,8 @@ export type PublicationArticleResponse = {
   status: PublicationArticleStatus
   createdAt: string
   updatedAt: string
+  category: string | null
+  tags: string[]
   metadata: Record<string, unknown>
   contentMarkdown?: string
   document: ReturnType<typeof extractPublicationDocument>
@@ -56,6 +58,8 @@ export type PublicationArticleMutationInput = {
   status?: PublicationArticleStatus
   contentMarkdown?: string
   body?: string
+  category?: string | null
+  tags?: string[]
   metadata?: Partial<PublicationMetadata>
   customFrontmatter?: PublicationFrontmatter
 }
@@ -83,6 +87,8 @@ export function normalizePublicationArticleMutationInput(raw: unknown): Publicat
     title: typeof input.title === 'string' ? input.title : undefined,
     slug: typeof input.slug === 'string' ? input.slug : undefined,
     status: input.status === 'draft' || input.status === 'published' ? input.status : undefined,
+    category: typeof input.category === 'string' ? input.category : input.category === null ? null : undefined,
+    tags: Array.isArray(input.tags) ? normalizeStringArray(input.tags) : undefined,
     contentMarkdown: contentMarkdownValue,
     body: typeof input.body === 'string' ? input.body : undefined,
     metadata: input.metadata && typeof input.metadata === 'object'
@@ -95,7 +101,12 @@ export function normalizePublicationArticleMutationInput(raw: unknown): Publicat
 export type PublicationListOptions = {
   status?: PublicationArticleStatus | 'all'
   search?: string
+  category?: string
+  tag?: string
+  tags?: string[]
   limit?: number
+  offset?: number
+  cursor?: string
   includeContent?: boolean
 }
 
@@ -237,6 +248,8 @@ export function serializePublicationArticle(
     status: article.status,
     createdAt: article.created_at,
     updatedAt: article.updated_at,
+    category: article.category ?? null,
+    tags: Array.isArray(article.tags) ? article.tags : [],
     metadata: article.metadata ?? {},
     contentMarkdown: options.includeContent === false ? undefined : article.content_markdown,
     document,
@@ -245,17 +258,37 @@ export function serializePublicationArticle(
 }
 
 export async function listPublicationArticles(options: PublicationListOptions = {}) {
-  const articles = await getPublicationPlatform().publicationStore.listArticles({
+  const platform = getPublicationPlatform()
+  const articles = await platform.publicationStore.listArticles({
     status: options.status,
     search: options.search,
+    category: options.category,
+    tag: options.tag,
+    tags: options.tags,
     limit: clampLimit(options.limit),
+    offset: options.offset,
+    cursor: options.cursor,
   })
 
-  return articles.map((article) =>
-    serializePublicationArticle(article as PublicationArticleRecord, {
-      includeContent: options.includeContent,
-    })
-  )
+  const total = await platform.publicationStore.countArticles?.({
+    status: options.status,
+    search: options.search,
+    category: options.category,
+    tag: options.tag,
+    tags: options.tags,
+  }) ?? articles.length
+
+  return {
+    articles: articles.map((article) =>
+      serializePublicationArticle(article as PublicationArticleRecord, {
+        includeContent: options.includeContent,
+      })
+    ),
+    total,
+    pageSize: articles.length,
+    count: total,
+    nextCursor: articles.length > 0 ? articles[articles.length - 1]?.created_at : undefined,
+  }
 }
 
 export async function getPublicationArticle(identifier: string, includeContent = true) {
@@ -275,6 +308,8 @@ export async function createPublicationArticle(input: PublicationArticleMutation
     slug,
     content_markdown: contentMarkdown,
     metadata: input.customFrontmatter ?? {},
+    category: deriveArticleCategory(input),
+    tags: deriveArticleTags(input),
     status: input.status ?? 'draft',
     created_at: now,
     updated_at: now,
@@ -305,6 +340,8 @@ export async function updatePublicationArticle(
     slug: normalizeRequestedSlug(input.slug, nextTitle, existingArticle.slug),
     content_markdown: contentMarkdown,
     metadata: input.customFrontmatter ?? existingArticle.metadata ?? {},
+    category: input.category !== undefined ? normalizeNullableString(input.category) : existingArticle.category ?? null,
+    tags: input.tags ? normalizeStringArray(input.tags) : existingArticle.tags ?? [],
     status: input.status ?? existingArticle.status,
     updated_at: new Date().toISOString(),
   }
@@ -508,6 +545,45 @@ function normalizeRequestedSlug(requestedSlug: string | undefined, title: string
   const slugSource = requestedSlug?.trim() || fallbackSlug?.trim() || slugifyPublicationTitle(title)
 
   return slugifyPublicationTitle(slugSource)
+}
+
+function deriveArticleCategory(input: PublicationArticleMutationInput) {
+  return input.category !== undefined
+    ? normalizeNullableString(input.category)
+    : typeof input.customFrontmatter?.category === 'string'
+      ? normalizeNullableString(input.customFrontmatter.category)
+      : typeof input.metadata?.publicationLabel === 'string'
+        ? normalizeNullableString(input.metadata.publicationLabel)
+        : null
+}
+
+function deriveArticleTags(input: PublicationArticleMutationInput) {
+  if (input.tags) {
+    return normalizeStringArray(input.tags)
+  }
+
+  if (Array.isArray(input.metadata?.tags)) {
+    return normalizeStringArray(input.metadata.tags)
+  }
+
+  if (Array.isArray(input.customFrontmatter?.tags)) {
+    return normalizeStringArray(input.customFrontmatter.tags)
+  }
+
+  return []
+}
+
+function normalizeNullableString(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+function normalizeStringArray(value: unknown[]) {
+  return [...new Set(value.map((entry) => String(entry).trim()).filter(Boolean))]
 }
 
 export function slugifyPublicationTitle(value: string) {

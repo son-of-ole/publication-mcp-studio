@@ -1,8 +1,8 @@
 {
-  "name": "@publication-mcp-studio/client",
+  "name": "@publication-mcp-studio/react",
   "version": "0.3.0",
   "type": "module",
-  "description": "Client SDK for integrating external apps with a hosted Publication MCP Studio deployment.",
+  "description": "Lightweight React hooks for reading articles from Publication MCP Studio integrations.",
   "license": "MIT",
   "files": [
     "dist"
@@ -14,6 +14,13 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@publication-mcp-studio/client": "^0.3.0",
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@publication-mcp-studio/client": "0.3.0"
   },
   "exports": {
     ".": {

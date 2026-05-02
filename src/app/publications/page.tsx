@@ -11,14 +11,14 @@ export const metadata: Metadata = {
 }
 
 export default async function PublicationsPage() {
-  let publicationCards: Awaited<ReturnType<typeof listPublicationArticles>> = []
+  let publicationCards: Awaited<ReturnType<typeof listPublicationArticles>>['articles'] = []
   let error: Error | null = null
 
   try {
-    publicationCards = await listPublicationArticles({
+    publicationCards = (await listPublicationArticles({
       status: 'published',
       includeContent: true,
-    })
+    })).articles
   } catch (nextError) {
     error = nextError instanceof Error ? nextError : new Error('Failed to load publications.')
   }

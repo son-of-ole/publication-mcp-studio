@@ -67,6 +67,27 @@ export const TOOL_DEFINITIONS = [
           type: 'number',
           description: 'Maximum number of articles to return.',
         },
+        offset: {
+          type: 'number',
+          description: 'Zero-based offset for page-style pagination.',
+        },
+        cursor: {
+          type: 'string',
+          description: 'Return articles created before this ISO timestamp cursor.',
+        },
+        category: {
+          type: 'string',
+          description: 'Filter by first-class article category.',
+        },
+        tag: {
+          type: 'string',
+          description: 'Filter by one first-class article tag.',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Filter to articles containing all requested first-class tags.',
+        },
         includeContent: {
           type: 'boolean',
           description: 'Include raw markdown in the response.',
@@ -166,6 +187,8 @@ export const TOOL_DEFINITIONS = [
         },
         contentMarkdown: { type: 'string' },
         body: { type: 'string' },
+        category: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
         metadata: { type: 'object' },
         customFrontmatter: { type: 'object' },
       },
@@ -187,6 +210,8 @@ export const TOOL_DEFINITIONS = [
         },
         contentMarkdown: { type: 'string' },
         body: { type: 'string' },
+        category: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
         metadata: { type: 'object' },
         customFrontmatter: { type: 'object' },
       },
@@ -558,17 +583,20 @@ export async function POST(request: NextRequest) {
 async function callTool(toolName: string, args: Record<string, unknown>, auth: PublicationAuthContext) {
   switch (toolName) {
     case 'list_articles':
-      return {
-        articles: await listPublicationArticles({
-          status:
-            args.status === 'draft' || args.status === 'published' || args.status === 'all'
-              ? args.status
-              : 'all',
-          search: typeof args.search === 'string' ? args.search : undefined,
-          limit: typeof args.limit === 'number' ? args.limit : undefined,
-          includeContent: args.includeContent === true,
-        }),
-      }
+      return listPublicationArticles({
+        status:
+          args.status === 'draft' || args.status === 'published' || args.status === 'all'
+            ? args.status
+            : 'all',
+        search: typeof args.search === 'string' ? args.search : undefined,
+        category: typeof args.category === 'string' ? args.category : undefined,
+        tag: typeof args.tag === 'string' ? args.tag : undefined,
+        tags: Array.isArray(args.tags) ? args.tags.map(String) : undefined,
+        limit: typeof args.limit === 'number' ? args.limit : undefined,
+        offset: typeof args.offset === 'number' ? args.offset : undefined,
+        cursor: typeof args.cursor === 'string' ? args.cursor : undefined,
+        includeContent: args.includeContent === true,
+      })
     case 'get_article':
       return {
         article: await getPublicationArticle(
@@ -590,6 +618,8 @@ async function callTool(toolName: string, args: Record<string, unknown>, auth: P
           status: optionalStatus(args.status),
           contentMarkdown: optionalString(args.contentMarkdown),
           body: optionalString(args.body),
+          category: optionalNullableString(args.category),
+          tags: Array.isArray(args.tags) ? args.tags.map(String) : undefined,
           metadata: optionalMetadata(args.metadata),
           customFrontmatter: optionalFrontmatter(args.customFrontmatter),
         }, auth),
@@ -710,6 +740,8 @@ async function callTool(toolName: string, args: Record<string, unknown>, auth: P
           status: optionalStatus(args.status),
           contentMarkdown: optionalString(args.contentMarkdown),
           body: optionalString(args.body),
+          category: optionalNullableString(args.category),
+          tags: Array.isArray(args.tags) ? args.tags.map(String) : undefined,
           metadata: optionalMetadata(args.metadata),
           customFrontmatter: optionalFrontmatter(args.customFrontmatter),
         }, auth),
@@ -875,6 +907,14 @@ function requiredString(value: unknown, fieldName: string) {
 }
 
 function optionalString(value: unknown) {
+  return typeof value === 'string' ? value : undefined
+}
+
+function optionalNullableString(value: unknown) {
+  if (value === null) {
+    return null
+  }
+
   return typeof value === 'string' ? value : undefined
 }
 

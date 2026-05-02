@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PublicationApiError } from './errors'
 import {
   authenticatePublicationRequest,
@@ -78,8 +79,14 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
       }
 
       if (routePath === '/tokens' && request.method === 'GET') {
-        await authenticate(request, ['audit:read'])
+        await authenticate(request, ['tokens:read'])
         return json({ tokens: await options.platform.tokenStore.listTokenRecords() })
+      }
+
+      const tokenRevokeMatch = /^\/tokens\/([^/]+)\/revoke$/.exec(routePath)
+      if (tokenRevokeMatch && request.method === 'POST') {
+        await authenticate(request, ['tokens:write'])
+        return json({ token: await options.platform.tokenStore.revokeTokenRecord(decodeURIComponent(tokenRevokeMatch[1])) })
       }
 
       if (routePath === '/articles' && request.method === 'GET') {
@@ -87,9 +94,22 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
         const articles = await options.platform.publicationStore.listArticles({
           status: parseStatus(url.searchParams.get('status')),
           search: url.searchParams.get('search') ?? undefined,
+          category: url.searchParams.get('category') ?? undefined,
+          tag: url.searchParams.get('tag') ?? undefined,
+          tags: parseTags(url.searchParams),
           limit: parseLimit(url.searchParams.get('limit')),
+          offset: parseOffset(url.searchParams.get('offset')),
+          cursor: url.searchParams.get('cursor') ?? undefined,
         })
-        return json({ articles, count: articles.length })
+        const total = await options.platform.publicationStore.countArticles?.({
+          status: parseStatus(url.searchParams.get('status')),
+          search: url.searchParams.get('search') ?? undefined,
+          category: url.searchParams.get('category') ?? undefined,
+          tag: url.searchParams.get('tag') ?? undefined,
+          tags: parseTags(url.searchParams),
+        }) ?? articles.length
+        const nextCursor = articles.length > 0 ? articles[articles.length - 1]?.created_at : undefined
+        return json({ articles, count: total, total, pageSize: articles.length, nextCursor })
       }
 
       if (routePath === '/articles' && request.method === 'POST') {
@@ -106,11 +126,29 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
               ? body.contentMarkdown
               : '',
           metadata: isRecord(body.metadata) ? body.metadata : {},
+          category: normalizeCategory(body),
+          tags: normalizeTags(body),
           status: body.status === 'published' ? 'published' : 'draft',
           created_at: typeof body.created_at === 'string' ? body.created_at : now,
           updated_at: typeof body.updated_at === 'string' ? body.updated_at : now,
         }
         return json({ article: await options.platform.publicationStore.createArticle(article) }, 201)
+      }
+
+      const articleActionMatch = /^\/articles\/([^/]+)\/(publish|unpublish)$/.exec(routePath)
+      if (articleActionMatch && request.method === 'POST') {
+        await authenticate(request, ['articles:publish'])
+        const identifier = decodeURIComponent(articleActionMatch[1])
+        const existing = await options.platform.publicationStore.getArticleByIdentifier(identifier)
+        if (!existing) {
+          throw new PublicationApiError(404, 'article_not_found', 'Article not found.')
+        }
+        return json({
+          article: await options.platform.publicationStore.updateArticle(existing.id, {
+            status: articleActionMatch[2] === 'publish' ? 'published' : 'draft',
+            updated_at: new Date().toISOString(),
+          }),
+        })
       }
 
       const articleMatch = /^\/articles\/([^/]+)$/.exec(routePath)
@@ -140,6 +178,8 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
               ? body.contentMarkdown
               : existing.content_markdown,
           metadata: isRecord(body.metadata) ? body.metadata : existing.metadata,
+          category: normalizeCategory(body, existing.category),
+          tags: normalizeTags(body, existing.tags),
           status: body.status === 'published' || body.status === 'draft' ? body.status : existing.status,
           updated_at: new Date().toISOString(),
         }
@@ -200,6 +240,42 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
   }
 }
 
+export function createPublicationExpressHandler(options: PublicationFetchHandlerOptions) {
+  const fetchHandler = createPublicationFetchHandler(options)
+
+  return async function publicationExpressHandler(req: IncomingMessage, res: ServerResponse) {
+    try {
+      const request = await incomingMessageToRequest(req)
+      const response = await fetchHandler(request)
+      res.statusCode = response.status
+      response.headers.forEach((value, key) => {
+        res.setHeader(key, value)
+      })
+      res.end(Buffer.from(await response.arrayBuffer()))
+    } catch (error) {
+      const response = errorResponse(error)
+      res.statusCode = response.status
+      response.headers.forEach((value, key) => {
+        res.setHeader(key, value)
+      })
+      res.end(Buffer.from(await response.arrayBuffer()))
+    }
+  }
+}
+
+export function createPublicationNextRouteHandlers(options: PublicationFetchHandlerOptions) {
+  const handler = createPublicationFetchHandler(options)
+  const routeHandler = (request: Request) => handler(request)
+
+  return {
+    GET: routeHandler,
+    POST: routeHandler,
+    PATCH: routeHandler,
+    DELETE: routeHandler,
+    OPTIONS: routeHandler,
+  }
+}
+
 function normalizeBasePath(basePath: string) {
   const normalized = `/${basePath.replace(/^\/+|\/+$/g, '')}`
   return normalized === '/' ? '' : normalized
@@ -226,6 +302,24 @@ function parseLimit(limit: string | null) {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+function parseOffset(offset: string | null) {
+  if (!offset) {
+    return undefined
+  }
+
+  const parsed = Number(offset)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function parseTags(searchParams: URLSearchParams) {
+  const tags = [
+    ...searchParams.getAll('tag'),
+    ...searchParams.getAll('tags').flatMap((value) => value.split(',')),
+  ].map((tag) => tag.trim()).filter(Boolean)
+
+  return tags.length > 0 ? [...new Set(tags)] : undefined
+}
+
 async function readJson(request: Request) {
   return request.json().catch(() => ({})) as Promise<Record<string, unknown>>
 }
@@ -240,6 +334,58 @@ function requireString(value: unknown, field: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizeCategory(body: Record<string, unknown>, fallback: string | null = null) {
+  if (typeof body.category === 'string') {
+    const category = body.category.trim()
+    return category || null
+  }
+
+  if (isRecord(body.metadata) && typeof body.metadata.category === 'string') {
+    const category = body.metadata.category.trim()
+    return category || null
+  }
+
+  return fallback
+}
+
+function normalizeTags(body: Record<string, unknown>, fallback: string[] = []) {
+  const rawTags = Array.isArray(body.tags)
+    ? body.tags
+    : isRecord(body.metadata) && Array.isArray(body.metadata.tags)
+      ? body.metadata.tags
+      : fallback
+
+  return [...new Set(rawTags.map((tag) => String(tag).trim()).filter(Boolean))]
+}
+
+async function incomingMessageToRequest(req: IncomingMessage) {
+  const protocol = req.headers['x-forwarded-proto'] ?? 'http'
+  const host = req.headers.host ?? 'localhost'
+  const url = `${Array.isArray(protocol) ? protocol[0] : protocol}://${host}${req.url ?? '/'}`
+  const headers = new Headers()
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        headers.append(key, entry)
+      }
+    } else if (value !== undefined) {
+      headers.set(key, value)
+    }
+  }
+  const method = req.method ?? 'GET'
+  const body = method === 'GET' || method === 'HEAD' ? undefined : await readIncomingBody(req)
+
+  return new Request(url, { method, headers, body })
+}
+
+async function readIncomingBody(req: IncomingMessage) {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
 }
 
 function json(body: unknown, status = 200) {

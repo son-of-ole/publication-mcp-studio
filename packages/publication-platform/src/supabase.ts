@@ -26,6 +26,8 @@ function normalizeArticleRecord(record: PublicationArticleRecord): PublicationAr
       record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
         ? record.metadata
         : {},
+    category: record.category ?? null,
+    tags: Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === 'string') : [],
   }
 }
 
@@ -34,6 +36,52 @@ function normalizeTokenRecord(record: PublicationTokenInventoryRecord): Publicat
     ...record,
     token_enabled_skill_ids: record.token_enabled_skill_ids ?? null,
   }
+}
+
+type SupabaseArticleQuery = {
+  eq(column: string, value: string): SupabaseArticleQuery
+  or(filters: string): SupabaseArticleQuery
+  contains(column: string, value: string[]): SupabaseArticleQuery
+  range(from: number, to: number): SupabaseArticleQuery
+  lt(column: string, value: string): SupabaseArticleQuery
+  then<TResult1 = unknown, TResult2 = never>(
+    onfulfilled?: ((value: { data?: unknown[] | null; count?: number | null; error?: { message: string } | null }) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ): PromiseLike<TResult1 | TResult2>
+}
+
+function escapeSupabaseOrValue(value: string) {
+  return value.replace(/[%(),]/g, (match) => `\\${match}`)
+}
+
+function applyArticleFilters<TQuery extends SupabaseArticleQuery>(
+  query: TQuery,
+  options: PublicationArticleListOptions | Omit<PublicationArticleListOptions, 'limit' | 'offset' | 'cursor'>
+) {
+  let nextQuery = query
+
+  if (options.status && options.status !== 'all') {
+    nextQuery = nextQuery.eq('status', options.status) as TQuery
+  }
+
+  if (options.category?.trim()) {
+    nextQuery = nextQuery.eq('category', options.category.trim()) as TQuery
+  }
+
+  const requestedTags = [
+    ...(options.tag?.trim() ? [options.tag.trim()] : []),
+    ...(Array.isArray(options.tags) ? options.tags.map((tag) => tag.trim()).filter(Boolean) : []),
+  ]
+  if (requestedTags.length > 0) {
+    nextQuery = nextQuery.contains('tags', [...new Set(requestedTags)]) as TQuery
+  }
+
+  if (options.search?.trim()) {
+    const search = escapeSupabaseOrValue(options.search.trim())
+    nextQuery = nextQuery.or(`title.ilike.%${search}%,slug.ilike.%${search}%,category.ilike.%${search}%`) as TQuery
+  }
+
+  return nextQuery
 }
 
 function getRequiredSupabaseConfig() {
@@ -67,16 +115,15 @@ const publicationStore: PublicationStore = {
   async listArticles(options: PublicationArticleListOptions = {}) {
     const supabase = createSupabaseServiceClient()
     const limit = options.limit && !Number.isNaN(options.limit) ? Math.min(100, Math.max(1, Math.floor(options.limit))) : 50
+    const offset = options.offset && !Number.isNaN(options.offset) ? Math.max(0, Math.floor(options.offset)) : 0
 
-    let query = supabase.from('articles').select('*').order('created_at', { ascending: false }).limit(limit)
+    let query = applyArticleFilters(
+      supabase.from('articles').select('*').order('created_at', { ascending: false }) as unknown as SupabaseArticleQuery,
+      options
+    ).range(offset, offset + limit - 1)
 
-    if (options.status && options.status !== 'all') {
-      query = query.eq('status', options.status)
-    }
-
-    if (options.search?.trim()) {
-      const search = options.search.trim()
-      query = query.or(`title.ilike.%${search}%,slug.ilike.%${search}%`)
+    if (options.cursor?.trim()) {
+      query = query.lt('created_at', options.cursor.trim())
     }
 
     const { data, error } = await query
@@ -84,7 +131,21 @@ const publicationStore: PublicationStore = {
       throw new PublicationApiError(500, 'articles_list_failed', error.message, error)
     }
 
-    return (data ?? []).map(normalizeArticleRecord)
+    return ((data ?? []) as PublicationArticleRecord[]).map(normalizeArticleRecord)
+  },
+
+  async countArticles(options: Omit<PublicationArticleListOptions, 'limit' | 'offset' | 'cursor'> = {}) {
+    const supabase = createSupabaseServiceClient()
+    const { count, error } = await applyArticleFilters(
+      supabase.from('articles').select('id', { count: 'exact', head: true }) as unknown as SupabaseArticleQuery,
+      options
+    )
+
+    if (error) {
+      throw new PublicationApiError(500, 'articles_count_failed', error.message, error)
+    }
+
+    return count ?? 0
   },
 
   async getArticleByIdentifier(identifier: string) {
@@ -408,6 +469,7 @@ export function createSupabasePublicationPlatform(
 
   return {
     kind: 'supabase',
+    async ensureSchema() {},
     publicationStore,
     versionStore,
     tokenStore,

@@ -22,13 +22,25 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const statusParam = searchParams.get('status')
     const limitParam = searchParams.get('limit')
+    const offsetParam = searchParams.get('offset')
     const search = searchParams.get('search') ?? undefined
+    const category = searchParams.get('category') ?? undefined
+    const tag = searchParams.get('tag') ?? undefined
+    const tags = [
+      ...searchParams.getAll('tag'),
+      ...searchParams.getAll('tags').flatMap((value) => value.split(',')),
+    ].map((value) => value.trim()).filter(Boolean)
     const includeContent = searchParams.get('includeContent') === 'true'
 
-    const articles = await listPublicationArticles({
+    const result = await listPublicationArticles({
       status: statusParam === 'draft' || statusParam === 'published' || statusParam === 'all' ? statusParam : 'all',
       search,
+      category,
+      tag,
+      tags: tags.length > 0 ? tags : undefined,
       limit: limitParam ? Number(limitParam) : undefined,
+      offset: offsetParam ? Number(offsetParam) : undefined,
+      cursor: searchParams.get('cursor') ?? undefined,
       includeContent,
     })
 
@@ -38,7 +50,8 @@ export async function GET(request: NextRequest) {
       route: '/api/publications/articles',
       method: 'GET',
       metadata: {
-        count: articles.length,
+        count: result.count,
+        pageSize: result.pageSize,
         includeContent,
         status: statusParam || 'all',
       },
@@ -46,8 +59,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        articles,
-        count: articles.length,
+        articles: result.articles,
+        count: result.count,
+        total: result.total,
+        pageSize: result.pageSize,
+        nextCursor: result.nextCursor,
       },
       { headers: buildPublicationCorsHeaders() }
     )

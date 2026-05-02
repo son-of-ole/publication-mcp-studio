@@ -1,6 +1,6 @@
 {
   "name": "publication-mcp-studio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "author": "Gordon Olson",
@@ -13,7 +13,7 @@
     "build": "node scripts/next-runner.mjs build",
     "start": "node scripts/next-runner.mjs start",
     "lint": "eslint",
-    "build:packages": "npm run build --workspace @publication-mcp-studio/platform && npm run build --workspace @publication-mcp-studio/client",
+    "build:packages": "npm run build --workspace @publication-mcp-studio/platform && npm run build --workspace @publication-mcp-studio/client && npm run build --workspace @publication-mcp-studio/react",
     "build:platform": "npm run build --workspace @publication-mcp-studio/platform",
     "test:platform": "tsx --test packages/publication-platform/test/**/*.test.ts",
     "test:publication": "tsx --test src/lib/publication-document-ir.test.ts src/lib/publication-import-export.test.ts src/lib/publication-skills.test.ts src/lib/publication-verifiers.test.ts",

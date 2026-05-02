@@ -37,6 +37,8 @@ test('persists articles and token records across adapter instances', async (t) =
     slug: 'portable-adapter-article',
     content_markdown: '# Portable Adapter Article',
     metadata: {},
+    category: 'engineering',
+    tags: ['portable', 'adapter'],
     status: 'draft',
     created_at: now,
     updated_at: now,
@@ -80,6 +82,67 @@ test('persists articles and token records across adapter instances', async (t) =
   assert.equal(stateJson.articles[0]?.slug, 'portable-adapter-article')
   assert.equal(stateJson.tokens[0]?.id, tokenRecord.id)
   assert.equal(stateJson.audit[0]?.action, 'articles.create')
+})
+
+test('filters and counts local articles by category, tags, cursor, and offset', async (t) => {
+  const rootDir = await createTempRoot()
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true })
+  })
+
+  const platform = createLocalPublicationPlatform({ rootDir, seedDemoContent: false })
+  const articles = [
+    {
+      id: 'article-a',
+      title: 'Scientific Launch',
+      slug: 'scientific-launch',
+      content_markdown: '# Scientific Launch',
+      metadata: {},
+      category: 'science',
+      tags: ['latex', 'lean'],
+      status: 'published' as const,
+      created_at: '2026-05-01T12:00:00.000Z',
+      updated_at: '2026-05-01T12:00:00.000Z',
+    },
+    {
+      id: 'article-b',
+      title: 'SEO Playbook',
+      slug: 'seo-playbook',
+      content_markdown: '# SEO Playbook',
+      metadata: {},
+      category: 'marketing',
+      tags: ['seo'],
+      status: 'published' as const,
+      created_at: '2026-05-02T12:00:00.000Z',
+      updated_at: '2026-05-02T12:00:00.000Z',
+    },
+  ]
+
+  for (const article of articles) {
+    await platform.publicationStore.createArticle(article)
+  }
+
+  assert.deepEqual(
+    (await platform.publicationStore.listArticles({ category: 'science' })).map((article) => article.slug),
+    ['scientific-launch']
+  )
+  assert.deepEqual(
+    (await platform.publicationStore.listArticles({ tag: 'seo' })).map((article) => article.slug),
+    ['seo-playbook']
+  )
+  assert.deepEqual(
+    (await platform.publicationStore.listArticles({ tags: ['latex', 'lean'] })).map((article) => article.slug),
+    ['scientific-launch']
+  )
+  assert.deepEqual(
+    (await platform.publicationStore.listArticles({ offset: 1 })).map((article) => article.slug),
+    ['scientific-launch']
+  )
+  assert.deepEqual(
+    (await platform.publicationStore.listArticles({ cursor: '2026-05-02T12:00:00.000Z' })).map((article) => article.slug),
+    ['scientific-launch']
+  )
+  assert.equal(await platform.publicationStore.countArticles({ status: 'published' }), 2)
 })
 
 test('writes, lists, and deletes media assets inside the configured root directory', async (t) => {
@@ -150,6 +213,8 @@ test('serializes concurrent local writes to avoid lost article updates', async (
     slug: 'concurrent-local-write-test',
     content_markdown: '# Initial',
     metadata: {},
+    category: 'tests',
+    tags: ['concurrency'],
     status: 'draft',
     created_at: now,
     updated_at: now,

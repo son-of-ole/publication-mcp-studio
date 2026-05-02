@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
   authenticatePublicationRequest,
+  createLocalPublicationPlatform,
   createPublicationPlatformRegistry,
+  createPublicationFetchHandler,
+  createPublicationExpressHandler,
+  createPublicationNextRouteHandlers,
   formatArticleFrontmatter,
   getAvailablePublicationPlatformAdapters,
   getLocalPublicationPlatformOptionsFromEnv,
@@ -17,10 +21,12 @@ import {
   migrateNeonPublicationPlatform,
   NEON_PUBLICATION_SCHEMA_SQL,
   parseArticleFrontmatter,
+  PUBLICATION_SCOPES,
   PUBLICATION_MCP_TOOL_SCOPES,
   resolvePublicationMediaStorageDriver,
   resolvePublicationPlatformAdapterName,
 } from '@publication-mcp-studio/platform'
+import { createNeonPublicationPlatform } from '@publication-mcp-studio/platform/neon'
 import { PublicationApiError } from '@publication-mcp-studio/platform/errors'
 
 test('lists the built-in adapters in stable order', () => {
@@ -188,6 +194,8 @@ test('threads local adapter env options into the registry', async () => {
 })
 
 test('ships canonical MCP tool scope metadata', () => {
+  assert.ok(PUBLICATION_SCOPES.includes('tokens:read'))
+  assert.ok(PUBLICATION_SCOPES.includes('tokens:write'))
   assert.equal(PUBLICATION_MCP_TOOL_SCOPES.create_article, 'articles:write')
   assert.equal(PUBLICATION_MCP_TOOL_SCOPES.publish_article, 'articles:publish')
   assert.equal(PUBLICATION_MCP_TOOL_SCOPES.generate_publication_draft, 'agent:generate')
@@ -256,6 +264,50 @@ test('auth helper verifies signed tokens, registry records, scopes, and touch me
   )
 })
 
+test('reference HTTP handlers expose filtered articles with total counts', async () => {
+  const platform = createLocalPublicationPlatform({
+    rootDir: `/tmp/publication-platform-http-handler-${Date.now()}`,
+    seedDemoContent: false,
+  })
+  const now = new Date().toISOString()
+  await platform.publicationStore.createArticle({
+    id: 'http-article',
+    title: 'HTTP Handler Article',
+    slug: 'http-handler-article',
+    content_markdown: '# HTTP Handler Article',
+    metadata: {},
+    category: 'science',
+    tags: ['sdk'],
+    status: 'published',
+    created_at: now,
+    updated_at: now,
+  })
+
+  const handler = createPublicationFetchHandler({
+    platform,
+    basePath: '/publications',
+    staticTokens: ['static-token'],
+  })
+  const response = await handler(new Request(
+    'https://example.com/publications/articles?category=science&tag=sdk',
+    { headers: { authorization: 'Bearer static-token' } }
+  ))
+  const body = await response.json() as {
+    articles: Array<{ slug: string }>
+    count: number
+    total: number
+    pageSize: number
+  }
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(body.articles.map((article) => article.slug), ['http-handler-article'])
+  assert.equal(body.count, 1)
+  assert.equal(body.total, 1)
+  assert.equal(body.pageSize, 1)
+  assert.equal(typeof createPublicationExpressHandler({ platform }), 'function')
+  assert.equal(typeof createPublicationNextRouteHandlers({ platform }).GET, 'function')
+})
+
 test('neon adapter avoids fragile SELECT star and RETURNING star patterns', async () => {
   const source = await readFile(new URL('../src/neon.ts', import.meta.url), 'utf8')
 
@@ -263,6 +315,9 @@ test('neon adapter avoids fragile SELECT star and RETURNING star patterns', asyn
   assert.equal(/\bRETURNING\s+\*/i.test(source), false)
   assert.match(source, /id::text AS id/)
   assert.match(source, /metadata jsonb NOT NULL DEFAULT/)
+  assert.match(source, /category text NULL/)
+  assert.match(source, /tags text\[\] NOT NULL DEFAULT/)
+  assert.match(source, /array_to_json\(tags\)::text AS tags_json/)
 })
 
 test('neon migration helper and packaged SQL include metadata schema', async () => {
@@ -273,5 +328,27 @@ test('neon migration helper and packaged SQL include metadata schema', async () 
 
   assert.equal(typeof migrateNeonPublicationPlatform, 'function')
   assert.match(NEON_PUBLICATION_SCHEMA_SQL, /metadata jsonb NOT NULL DEFAULT/)
+  assert.match(NEON_PUBLICATION_SCHEMA_SQL, /CREATE INDEX IF NOT EXISTS articles_category_idx/)
+  assert.match(NEON_PUBLICATION_SCHEMA_SQL, /CREATE INDEX IF NOT EXISTS articles_tags_gin_idx/)
   assert.match(migrationFile, /metadata jsonb NOT NULL DEFAULT/)
+  assert.match(migrationFile, /CREATE INDEX IF NOT EXISTS articles_category_idx/)
+})
+
+test('neon platform honors custom adminAuthStore option', async () => {
+  const customAdminStore = {
+    kind: 'local' as const,
+    async getCurrentUser() {
+      return { id: 'custom-admin', email: 'custom@example.com', mode: 'local' as const }
+    },
+    async signOut() {},
+    async signInWithPassword() {
+      return { id: 'custom-admin', email: 'custom@example.com', mode: 'local' as const }
+    },
+  }
+  const platform = createNeonPublicationPlatform({
+    databaseUrl: 'postgresql://user:pass@example.neon.tech/neondb?sslmode=require',
+    adminAuthStore: customAdminStore,
+  })
+
+  assert.equal(platform.adminAuthStore, customAdminStore)
 })

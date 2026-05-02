@@ -1,80 +1,93 @@
 # Publication Platform Package
 
-This package contains the stack-agnostic platform boundary for Publication MCP Studio.
-
-Install:
+Stack-agnostic publication persistence, auth, migration, and HTTP adapters for embedding Publication MCP Studio into another backend.
 
 ```bash
 npm install @publication-mcp-studio/platform
 ```
 
-Goals:
+## Quick Start
 
-- keep framework and persistence seams explicit
-- make it easy to add new adapters without rewriting app code
-- make it practical for outside apps to embed the publication persistence layer
+Most hosts should start with the drop-in handler:
 
-Current public surface:
+```ts
+import express from 'express'
+import {
+  createNeonPublicationPlatform,
+  createPublicationExpressHandler,
+} from '@publication-mcp-studio/platform'
 
-- `src/index.ts` for adapter selection
-- `src/types.ts` for storage and auth contracts
-- `src/errors.ts` for shared platform errors
-- `src/media-storage.ts` for shared media-storage config helpers
-- `src/token-scopes.ts` for shared token scope definitions
-- `src/local.ts` for the local filesystem adapter
-- `src/neon.ts` for the Neon/Postgres adapter
-- `src/supabase.ts` for the Supabase adapter
-- `src/template.ts` for scaffolding a new adapter
+const platform = createNeonPublicationPlatform({
+  databaseUrl: process.env.DATABASE_URL,
+})
 
-Published npm package:
+await platform.ensureSchema()
 
-- https://www.npmjs.com/package/@publication-mcp-studio/platform
+const app = express()
+app.use('/publications', createPublicationExpressHandler({
+  platform,
+  tokenSecrets: [process.env.PUBLICATION_TOKEN_SECRET!],
+}))
+```
 
-Important boundary:
+Available handler surfaces:
 
-- this package is intentionally stack-agnostic
-- host apps own route handlers, session cookies, and admin auth behavior
-- if you need a fetch-based integration SDK for a hosted deployment, use `@publication-mcp-studio/client`
+- `createPublicationFetchHandler()` for Web Fetch runtimes.
+- `createPublicationExpressHandler()` for Express and Node `IncomingMessage`/`ServerResponse`.
+- `createPublicationNextRouteHandlers()` for Next.js App Router route files.
 
-Update guidance:
+BYO routes are still supported, but they are now the advanced path. If you write custom routes, keep using `authenticatePublicationRequest()`, `PUBLICATION_MCP_TOOL_SCOPES`, and the platform stores so behavior stays compatible with the SDK client.
 
-- prefer expanding the interfaces in `src/types.ts` deliberately instead of reaching around them from app code
-- keep app imports pointed at the package entrypoints, not individual app internals
-- add new adapters beside `local.ts` and `supabase.ts`, then expose them through `src/index.ts`
-- protect adapter changes with `npm run test:platform`
+## First Token
 
-Selection behavior:
+The package ships a bootstrap CLI:
 
-- `PUBLICATION_PLATFORM_ADAPTER=local` forces the filesystem adapter
-- `PUBLICATION_PLATFORM_ADAPTER=neon` forces the Neon/Postgres adapter
-- `PUBLICATION_PLATFORM_ADAPTER=supabase` forces the Supabase adapter
-- if no explicit adapter is set, the package auto-selects `supabase` when the required Supabase env vars are present, then `neon` when a Neon database URL is present, and otherwise falls back to `local`
-- `PUBLICATION_LOCAL_ROOT_DIR` lets another host app point local persistence at its own project root
-- `PUBLICATION_LOCAL_SEED_DEMO_CONTENT=false` disables the seeded demo article
-- `PUBLICATION_ADMIN_EMAIL` and `PUBLICATION_ADMIN_PASSWORD` secure the local credential flow used by non-Supabase admin adapters
-- `PUBLICATION_MEDIA_DRIVER=s3` enables shared S3-compatible publication media storage for adapters that support it
-- `PUBLICATION_MEDIA_PUBLIC_BASE_URL` should point at the public CDN or bucket base URL for uploaded assets
+```bash
+DATABASE_URL="postgresql://..." \
+PUBLICATION_TOKEN_SECRET="change-me" \
+npx publication-mcp issue-token \
+  --label "Website Integration" \
+  --scopes mcp:connect,articles:read,articles:write \
+  --json
+```
 
-Custom adapter path:
+The CLI applies the Neon migration defensively, creates a registered token record, signs the token, and prints the token payload.
 
-1. Implement the interfaces in `src/types.ts`.
-2. Start from `createTemplatePublicationPlatformFactory()` in `src/template.ts`.
-3. Register the adapter in `createPublicationPlatformRegistry()` or inject your own registry from the host app.
+## Adapters
 
-Host app integration:
+Current adapters:
 
-1. Choose `local`, `neon`, or `supabase`.
-2. Provide `adminAuthStore` from the host stack.
-3. Wire your own routes or use this repo as the hosted service.
+- `local`: filesystem-backed development adapter.
+- `neon`: Postgres/Neon adapter with idempotent schema migration.
+- `supabase`: Supabase table/storage adapter.
 
-Neon status:
+Selection helpers:
 
-- `0.2.0` fixes the known Neon HTTP driver issues around `SELECT *`, `RETURNING *`, nullable `text[]` bindings, and first-run migrations
-- run `migrateNeonPublicationPlatform()` or apply the packaged `migrations/neon_schema.sql` before first use
-- keep a real Neon branch smoke test in the host app before production rollout
+- `PUBLICATION_PLATFORM_ADAPTER=local|neon|supabase`
+- `NEON_DATABASE_URL`, `DATABASE_URL`, `POSTGRES_URL`, or `POSTGRES_PRISMA_URL`
+- `PUBLICATION_LOCAL_ROOT_DIR`
+- `PUBLICATION_LOCAL_SEED_DEMO_CONTENT=false`
+- `PUBLICATION_ADMIN_EMAIL`
+- `PUBLICATION_ADMIN_PASSWORD`
 
-See:
+## v0.3.0 Additions
 
-- [docs/publication-integration-guide.md](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/publication-integration-guide.md)
-- [docs/sdk-integration-feedback-v0.1.0.md](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/sdk-integration-feedback-v0.1.0.md)
-- [templates/nextjs-embedded/README.md](https://github.com/son-of-ole/publication-mcp-studio/blob/main/templates/nextjs-embedded/README.md)
+- `platform.ensureSchema()` for first-run boot checks.
+- First-class `category text` and `tags text[]` article fields.
+- Category, tag, offset, and cursor list filters.
+- `countArticles()` for real total counts instead of page-length-only counts.
+- Express and Next route wrappers.
+- `PUBLICATION_SCOPES` and token read/write scopes.
+- CLI token bootstrap via `publication-mcp issue-token`.
+- Neon fixes for custom `adminAuthStore`, nullable audit UUIDs, and empty-result Neon driver crashes.
+
+## Neon Notes
+
+`migrateNeonPublicationPlatform()` and `platform.ensureSchema()` apply the canonical schema in `migrations/neon_schema.sql`. The Neon adapter avoids `SELECT *`, avoids `RETURNING *`, casts UUID/timestamp/array fields explicitly, and omits null array binds that the Neon HTTP driver serializes poorly.
+
+## Docs
+
+- [Integration guide](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/publication-integration-guide.md)
+- [REST contract](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/publication-rest-contract.md)
+- [Metadata conventions](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/metadata-conventions.md)
+- [v0.2.0 integration feedback](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/sdk-integration-feedback-v0.2.0.md)

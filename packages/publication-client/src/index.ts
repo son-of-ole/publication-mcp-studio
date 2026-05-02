@@ -1,5 +1,16 @@
 export type PublicationClientOptions = {
-  baseUrl: string
+  /**
+   * Backward-compatible request base. May be either an origin
+   * (`https://example.com`) or a full publication API base path
+   * (`https://example.com/api/publications`).
+   */
+  baseUrl?: string
+  /**
+   * Preferred v0.3 name for same-origin style integrations. When set, the
+   * client appends `pathPrefix`.
+   */
+  origin?: string
+  pathPrefix?: string
   token?: string
   fetch?: typeof globalThis.fetch
   headers?: Record<string, string>
@@ -8,33 +19,51 @@ export type PublicationClientOptions = {
 export type PublicationListArticlesOptions = {
   status?: 'draft' | 'published' | 'all'
   search?: string
+  category?: string
+  tag?: string
+  tags?: string[]
   limit?: number
+  offset?: number
+  cursor?: string
   includeContent?: boolean
   signal?: AbortSignal
 }
 
 export type PublicationArticleStatus = 'draft' | 'published'
 
-export type PublicationArticleResponse = {
+export type PublicationDefaultArticleMetadata = {
+  category?: string
+  excerpt?: string
+  imageUrl?: string
+  date?: string
+  tags?: string[]
+  [key: string]: unknown
+}
+
+export type PublicationArticleResponse<TMetadata extends Record<string, unknown> = PublicationDefaultArticleMetadata> = {
   id: string
   title: string
   slug: string
   status: PublicationArticleStatus
   createdAt: string
   updatedAt: string
-  metadata: Record<string, unknown>
+  category: string | null
+  tags: string[]
+  metadata: TMetadata
   contentMarkdown?: string
   document?: unknown
   presentation?: unknown
 }
 
-export type PublicationArticleMutationInput = {
+export type PublicationArticleMutationInput<TMetadata extends Record<string, unknown> = PublicationDefaultArticleMetadata> = {
   title?: string
   slug?: string
   status?: PublicationArticleStatus
   contentMarkdown?: string
   body?: string
-  metadata?: Record<string, unknown>
+  category?: string | null
+  tags?: string[]
+  metadata?: Partial<TMetadata>
   customFrontmatter?: Record<string, unknown>
 }
 
@@ -60,14 +89,31 @@ export type PublicationTokenScope =
   | 'articles:delete'
   | 'agent:generate'
   | 'audit:read'
+  | 'tokens:read'
+  | 'tokens:write'
+
+export const PUBLICATION_SCOPES = [
+  'mcp:connect',
+  'articles:read',
+  'articles:write',
+  'articles:publish',
+  'articles:delete',
+  'agent:generate',
+  'audit:read',
+  'tokens:read',
+  'tokens:write',
+] as const
 
 export type PublicationTokenRecord = {
   id: string
   label: string
   scopes: PublicationTokenScope[]
-  revoked_at: string | null
-  expires_at: string
-  created_at: string
+  revokedAt: string | null
+  expiresAt: string
+  issuedAt?: string
+  createdAt: string
+  lastUsedAt?: string | null
+  raw?: unknown
 }
 
 export class PublicationClientError extends Error {
@@ -84,22 +130,28 @@ export class PublicationClientError extends Error {
   }
 }
 
-export type PublicationClient = ReturnType<typeof createPublicationClient>
+export function defineArticleMetadataSchema<TSchema>(schema: TSchema) {
+  return schema
+}
 
-export function createPublicationClient(options: PublicationClientOptions) {
+export type PublicationClient<TMetadata extends Record<string, unknown> = PublicationDefaultArticleMetadata> = ReturnType<typeof createPublicationClient<TMetadata>>
+
+export function createPublicationClient<TMetadata extends Record<string, unknown> = PublicationDefaultArticleMetadata>(
+  options: PublicationClientOptions
+) {
   const fetchImpl = options.fetch ?? globalThis.fetch
 
   if (!fetchImpl) {
     throw new Error('A fetch implementation is required to use @publication-mcp-studio/client.')
   }
 
-  const baseUrl = normalizeBaseUrl(options.baseUrl)
+  const endpoint = resolveEndpoint(options)
 
   async function request<T>(
     pathname: string,
-    init: RequestInit & { query?: Record<string, string | number | boolean | undefined> } = {}
+    init: RequestInit & { query?: Record<string, string | number | boolean | string[] | undefined> } = {}
   ) {
-    const url = buildRequestUrl(baseUrl, pathname)
+    const url = buildRequestUrl(endpoint, pathname)
 
     if (init.query) {
       const query = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
@@ -107,7 +159,13 @@ export function createPublicationClient(options: PublicationClientOptions) {
         if (value === undefined || value === null || value === '') {
           continue
         }
-        query.set(key, String(value))
+        if (Array.isArray(value)) {
+          for (const entry of value) {
+            query.append(key, entry)
+          }
+        } else {
+          query.set(key, String(value))
+        }
       }
       const [pathOnly] = url.split('?')
       const serialized = query.toString()
@@ -153,11 +211,13 @@ export function createPublicationClient(options: PublicationClientOptions) {
   }
 
   return {
-    baseUrl,
+    baseUrl: endpoint.baseUrl,
+    origin: endpoint.origin,
+    pathPrefix: endpoint.pathPrefix,
 
     health(init: { signal?: AbortSignal } = {}) {
       return request<{ ok: boolean; protocolVersion?: string; server?: string; tools?: number; toolNames?: string[] }>(
-        '/api/publications/mcp/health',
+        '/mcp/health',
         { signal: init.signal }
       )
     },
@@ -168,18 +228,21 @@ export function createPublicationClient(options: PublicationClientOptions) {
         restBaseUrl: string
         availableScopes: PublicationTokenScope[]
         tokens: PublicationTokenRecord[]
-      }>('/api/publications/tokens', { signal: init.signal })
+      }>('/tokens', { signal: init.signal }).then(normalizeTokenListResponse)
     },
 
     adminLogin(input: { email: string; password: string; signal?: AbortSignal }) {
       return request<{ token: { token: string; tokenId: string; expiresAt: string }; tokenRecord?: PublicationTokenRecord }>(
-        '/api/publications/admin/login',
+        '/admin/login',
         {
           method: 'POST',
           body: JSON.stringify({ email: input.email, password: input.password }),
           signal: input.signal,
         }
-      )
+      ).then((response) => ({
+        ...response,
+        tokenRecord: response.tokenRecord ? normalizeTokenRecord(response.tokenRecord) : undefined,
+      }))
     },
 
     listTokens(init: { signal?: AbortSignal } = {}) {
@@ -188,14 +251,20 @@ export function createPublicationClient(options: PublicationClientOptions) {
 
     revokeToken(tokenId: string, init: { signal?: AbortSignal } = {}) {
       return request<{ token: PublicationTokenRecord }>(
-        `/api/publications/tokens/${encodeURIComponent(tokenId)}/revoke`,
+        `/tokens/${encodeURIComponent(tokenId)}/revoke`,
         { method: 'POST', signal: init.signal }
-      )
+      ).then((response) => ({ token: normalizeTokenRecord(response.token) }))
     },
 
     listArticles(options: PublicationListArticlesOptions = {}) {
       const { signal, ...query } = options
-      return request<{ articles: PublicationArticleResponse[]; count: number }>('/api/publications/articles', {
+      return request<{
+        articles: PublicationArticleResponse<TMetadata>[]
+        count: number
+        total?: number
+        pageSize?: number
+        nextCursor?: string
+      }>('/articles', {
         method: 'GET',
         query,
         signal,
@@ -203,8 +272,8 @@ export function createPublicationClient(options: PublicationClientOptions) {
     },
 
     getArticle(identifier: string, includeContent = true, init: { signal?: AbortSignal } = {}) {
-      return request<{ article: PublicationArticleResponse }>(
-        `/api/publications/articles/${encodeURIComponent(identifier)}`,
+      return request<{ article: PublicationArticleResponse<TMetadata> }>(
+        `/articles/${encodeURIComponent(identifier)}`,
         {
           method: 'GET',
           query: { includeContent },
@@ -213,17 +282,17 @@ export function createPublicationClient(options: PublicationClientOptions) {
       )
     },
 
-    createArticle(input: PublicationArticleMutationInput, init: { signal?: AbortSignal } = {}) {
-      return request<{ article: PublicationArticleResponse }>('/api/publications/articles', {
+    createArticle(input: PublicationArticleMutationInput<TMetadata>, init: { signal?: AbortSignal } = {}) {
+      return request<{ article: PublicationArticleResponse<TMetadata> }>('/articles', {
         method: 'POST',
         body: JSON.stringify(input),
         signal: init.signal,
       })
     },
 
-    updateArticle(identifier: string, input: PublicationArticleMutationInput, init: { signal?: AbortSignal } = {}) {
-      return request<{ article: PublicationArticleResponse }>(
-        `/api/publications/articles/${encodeURIComponent(identifier)}`,
+    updateArticle(identifier: string, input: PublicationArticleMutationInput<TMetadata>, init: { signal?: AbortSignal } = {}) {
+      return request<{ article: PublicationArticleResponse<TMetadata> }>(
+        `/articles/${encodeURIComponent(identifier)}`,
         {
           method: 'PATCH',
           body: JSON.stringify(input),
@@ -233,8 +302,8 @@ export function createPublicationClient(options: PublicationClientOptions) {
     },
 
     publishArticle(identifier: string, init: { signal?: AbortSignal } = {}) {
-      return request<{ article: PublicationArticleResponse }>(
-        `/api/publications/articles/${encodeURIComponent(identifier)}/publish`,
+      return request<{ article: PublicationArticleResponse<TMetadata> }>(
+        `/articles/${encodeURIComponent(identifier)}/publish`,
         {
           method: 'POST',
           signal: init.signal,
@@ -243,8 +312,8 @@ export function createPublicationClient(options: PublicationClientOptions) {
     },
 
     unpublishArticle(identifier: string, init: { signal?: AbortSignal } = {}) {
-      return request<{ article: PublicationArticleResponse }>(
-        `/api/publications/articles/${encodeURIComponent(identifier)}/unpublish`,
+      return request<{ article: PublicationArticleResponse<TMetadata> }>(
+        `/articles/${encodeURIComponent(identifier)}/unpublish`,
         {
           method: 'POST',
           signal: init.signal,
@@ -253,8 +322,8 @@ export function createPublicationClient(options: PublicationClientOptions) {
     },
 
     deleteArticle(identifier: string, init: { signal?: AbortSignal } = {}) {
-      return request<{ deleted: true; article: PublicationArticleResponse }>(
-        `/api/publications/articles/${encodeURIComponent(identifier)}`,
+      return request<{ deleted: true; article: PublicationArticleResponse<TMetadata> }>(
+        `/articles/${encodeURIComponent(identifier)}`,
         {
           method: 'DELETE',
           signal: init.signal,
@@ -263,7 +332,7 @@ export function createPublicationClient(options: PublicationClientOptions) {
     },
 
     verifyDocument(input: PublicationVerifyInput, init: { signal?: AbortSignal } = {}) {
-      return request<{ result: unknown; ir?: unknown }>('/api/publications/verify', {
+      return request<{ result: unknown; ir?: unknown }>('/verify', {
         method: 'POST',
         body: JSON.stringify(input),
         signal: init.signal,
@@ -271,7 +340,7 @@ export function createPublicationClient(options: PublicationClientOptions) {
     },
 
     mcpRequest<T = unknown>(input: PublicationMcpRequest, init: { signal?: AbortSignal } = {}) {
-      return request<T>('/api/publications/mcp', {
+      return request<T>('/mcp', {
         method: 'POST',
         body: JSON.stringify({
           jsonrpc: '2.0',
@@ -311,22 +380,81 @@ export function createPublicationClient(options: PublicationClientOptions) {
   }
 }
 
-function normalizeBaseUrl(baseUrl: string) {
-  if (!baseUrl.trim()) {
-    throw new Error('Publication client requires a non-empty baseUrl.')
-  }
-
-  return baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+type PublicationResolvedEndpoint = {
+  baseUrl: string
+  origin: string
+  pathPrefix: string
 }
 
-function buildRequestUrl(baseUrl: string, pathname: string) {
-  if (/^https?:\/\//i.test(baseUrl)) {
-    return new URL(pathname, baseUrl).toString()
+function resolveEndpoint(options: PublicationClientOptions): PublicationResolvedEndpoint {
+  const rawBase = options.baseUrl?.trim()
+  const rawOrigin = options.origin?.trim()
+  const pathPrefix = normalizePathPrefix(options.pathPrefix ?? '/api/publications')
+  const base = rawBase || rawOrigin
+
+  if (!base) {
+    throw new Error('Publication client requires a non-empty baseUrl or origin.')
   }
 
-  const base = baseUrl.replace(/\/+$/g, '')
+  const trimmed = base.replace(/\/+$/g, '')
+  const baseIncludesPrefix = trimmed.endsWith(pathPrefix)
+  const origin = baseIncludesPrefix ? trimmed.slice(0, -pathPrefix.length) || '/' : trimmed
+  return {
+    baseUrl: baseIncludesPrefix ? trimmed : `${trimmed}${pathPrefix}`,
+    origin,
+    pathPrefix,
+  }
+}
+
+function normalizePathPrefix(pathPrefix: string) {
+  const normalized = `/${pathPrefix.replace(/^\/+|\/+$/g, '')}`
+  return normalized === '/' ? '' : normalized
+}
+
+function buildRequestUrl(endpoint: PublicationResolvedEndpoint, pathname: string) {
   const path = pathname.startsWith('/') ? pathname : `/${pathname}`
+  const base = endpoint.baseUrl.replace(/\/+$/g, '')
+  if (/^https?:\/\//i.test(base)) {
+    return `${base}${path}`
+  }
+
   return `${base}${path}`
+}
+
+function normalizeTokenListResponse<T extends { tokens: PublicationTokenRecord[] }>(response: T) {
+  return {
+    ...response,
+    tokens: response.tokens.map(normalizeTokenRecord),
+  }
+}
+
+function normalizeTokenRecord(record: PublicationTokenRecord | Record<string, unknown>): PublicationTokenRecord {
+  const raw = record as Record<string, unknown>
+  return {
+    id: String(raw.id),
+    label: String(raw.label),
+    scopes: Array.isArray(raw.scopes)
+      ? raw.scopes.filter((scope): scope is PublicationTokenScope => (PUBLICATION_SCOPES as readonly string[]).includes(String(scope)))
+      : [],
+    revokedAt: readStringOrNull(raw.revokedAt ?? raw.revoked_at),
+    expiresAt: readString(raw.expiresAt ?? raw.expires_at),
+    issuedAt: readOptionalString(raw.issuedAt ?? raw.issued_at),
+    createdAt: readString(raw.createdAt ?? raw.created_at),
+    lastUsedAt: readStringOrNull(raw.lastUsedAt ?? raw.last_used_at),
+    raw: record,
+  }
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' ? value : ''
+}
+
+function readOptionalString(value: unknown) {
+  return typeof value === 'string' ? value : undefined
+}
+
+function readStringOrNull(value: unknown) {
+  return typeof value === 'string' ? value : null
 }
 
 async function parseJsonSafely(response: Response) {

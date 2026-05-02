@@ -27,7 +27,8 @@ Recommended pieces:
 - install `@publication-mcp-studio/platform`
 - choose `local`, `neon`, or `supabase`
 - provide a host-owned `adminAuthStore`
-- build host routes/UI on top of the platform and/or proxy to this repo's route patterns
+- mount the drop-in Fetch, Express, or Next route handler
+- use BYO routes only when the host needs custom auth/session behavior
 
 Good fit for:
 
@@ -42,23 +43,29 @@ Good fit for:
   - adapter selection
   - local, Neon, and Supabase adapters
   - shared token/media/platform types
+  - drop-in Fetch, Express, and Next route handlers
+  - `publication-mcp issue-token` bootstrap CLI
 - `@publication-mcp-studio/client`
   - fetch-based integration SDK for hosted deployments
   - article CRUD helpers
   - verification helpers
   - MCP JSON-RPC helper methods
+- `@publication-mcp-studio/react`
+  - `useArticles()` and `useArticle()` for lightweight public read integration
 
 Install from npm:
 
 ```bash
 npm install @publication-mcp-studio/client
 npm install @publication-mcp-studio/platform
+npm install @publication-mcp-studio/react
 ```
 
 Package pages:
 
 - [`@publication-mcp-studio/client`](https://www.npmjs.com/package/@publication-mcp-studio/client)
 - [`@publication-mcp-studio/platform`](https://www.npmjs.com/package/@publication-mcp-studio/platform)
+- [`@publication-mcp-studio/react`](https://www.npmjs.com/package/@publication-mcp-studio/react)
 
 ## Fastest Paths
 
@@ -74,10 +81,12 @@ Package pages:
 
 1. install `@publication-mcp-studio/platform`
 2. start with the local adapter
-3. supply a host-specific `adminAuthStore`
-4. move to Neon or Supabase when shared persistence is needed
+3. call `platform.ensureSchema()` at boot
+4. mount `createPublicationExpressHandler()`, `createPublicationFetchHandler()`, or `createPublicationNextRouteHandlers()`
+5. issue the first token with `npx publication-mcp issue-token --label "My App" --scopes mcp:connect,articles:read --json`
+6. move to Neon or Supabase when shared persistence is needed
 
-Note: `@publication-mcp-studio/platform@0.2.0` includes the Neon HTTP fixes from integration testing and exports `migrateNeonPublicationPlatform()`. Run the migration before first use and keep a real Neon branch smoke test in your host CI.
+Note: `@publication-mcp-studio/platform@0.3.0` includes the Neon HTTP fixes from integration testing, first-class category/tags, `platform.ensureSchema()`, and `migrateNeonPublicationPlatform()`. Run the migration before first use and keep a real Neon branch smoke test in your host CI.
 
 ## Templates
 

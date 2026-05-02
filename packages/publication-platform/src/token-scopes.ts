@@ -6,9 +6,13 @@ export const PUBLICATION_TOKEN_SCOPES = [
   'articles:delete',
   'agent:generate',
   'audit:read',
+  'tokens:read',
+  'tokens:write',
 ] as const
 
 export type PublicationTokenScope = (typeof PUBLICATION_TOKEN_SCOPES)[number]
+export const PUBLICATION_SCOPES = PUBLICATION_TOKEN_SCOPES
+export type PublicationScope = PublicationTokenScope
 
 export const PUBLICATION_MCP_TOOL_SCOPES = {
   list_articles: 'articles:read',

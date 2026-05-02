@@ -8,6 +8,8 @@ export type PublicationArticleRecord = {
   slug: string
   content_markdown: string
   metadata: Record<string, unknown>
+  category: string | null
+  tags: string[]
   status: PublicationArticleStatus
   created_at: string
   updated_at: string
@@ -195,7 +197,12 @@ export type PublicationAdminUser = {
 export type PublicationArticleListOptions = {
   status?: PublicationArticleStatus | 'all'
   search?: string
+  category?: string
+  tag?: string
+  tags?: string[]
   limit?: number
+  offset?: number
+  cursor?: string
 }
 
 export type PublicationMediaUploadPayload = {
@@ -209,6 +216,7 @@ export type PublicationMediaUploadPayload = {
 
 export interface PublicationStore {
   listArticles(options?: PublicationArticleListOptions): Promise<PublicationArticleRecord[]>
+  countArticles?(options?: Omit<PublicationArticleListOptions, 'limit' | 'offset' | 'cursor'>): Promise<number>
   getArticleByIdentifier(identifier: string): Promise<PublicationArticleRecord | null>
   createArticle(input: PublicationArticleRecord): Promise<PublicationArticleRecord>
   updateArticle(id: string, updates: Partial<PublicationArticleRecord>): Promise<PublicationArticleRecord>
@@ -259,6 +267,7 @@ export interface AdminAuthStore {
 
 export interface PublicationPlatform {
   kind: 'supabase' | 'local' | 'neon'
+  ensureSchema(): Promise<void>
   publicationStore: PublicationStore
   versionStore: PublicationVersionStore
   tokenStore: TokenStore

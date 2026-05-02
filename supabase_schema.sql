@@ -7,13 +7,20 @@ CREATE TABLE IF NOT EXISTS public.articles (
   slug text NOT NULL UNIQUE,
   content_markdown text NOT NULL DEFAULT '',
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  category text NULL,
+  tags text[] NOT NULL DEFAULT '{}',
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 ALTER TABLE public.articles
-  ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS category text NULL,
+  ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS articles_category_idx ON public.articles (category);
+CREATE INDEX IF NOT EXISTS articles_tags_gin_idx ON public.articles USING gin (tags);
 
 -- 2. Turn on Row Level Security
 ALTER TABLE public.articles ENABLE ROW LEVEL SECURITY;

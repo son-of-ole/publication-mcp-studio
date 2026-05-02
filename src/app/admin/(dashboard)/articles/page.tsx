@@ -6,14 +6,14 @@ import ProductionReadinessPanel from '@/components/publications/ProductionReadin
 import { listPublicationArticles } from '@/lib/publication-service'
 
 export default async function AdminArticlesPage() {
-  let articles: Awaited<ReturnType<typeof listPublicationArticles>> = []
+  let articles: Awaited<ReturnType<typeof listPublicationArticles>>['articles'] = []
   let error: Error | null = null
 
   try {
-    articles = await listPublicationArticles({
+    articles = (await listPublicationArticles({
       status: 'all',
       includeContent: true,
-    })
+    })).articles
   } catch (nextError) {
     error = nextError instanceof Error ? nextError : new Error('Failed to load articles.')
   }

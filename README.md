@@ -22,12 +22,14 @@ The integration SDK is published on npm under the `@publication-mcp-studio` scop
 ```bash
 npm install @publication-mcp-studio/client
 npm install @publication-mcp-studio/platform
+npm install @publication-mcp-studio/react
 ```
 
 - [`@publication-mcp-studio/client`](https://www.npmjs.com/package/@publication-mcp-studio/client) is the fetch-based SDK for apps that call a hosted Publication MCP Studio service over REST and MCP.
-- [`@publication-mcp-studio/platform`](https://www.npmjs.com/package/@publication-mcp-studio/platform) is the adapter/platform SDK for apps that want to embed publication persistence directly into their own backend.
+- [`@publication-mcp-studio/platform`](https://www.npmjs.com/package/@publication-mcp-studio/platform) is the adapter/platform SDK for apps that want to embed publication persistence directly into their own backend. v0.3.0 now leads with drop-in Fetch, Express, and Next route handlers.
+- [`@publication-mcp-studio/react`](https://www.npmjs.com/package/@publication-mcp-studio/react) is the lightweight hooks package for hosted read integrations.
 
-For outside stacks, start with [docs/publication-integration-guide.md](./docs/publication-integration-guide.md). The v0.2.0 SDK release turns the v0.1.0 testing feedback into code: Neon SQL fixes, migrations, article metadata, auth helpers, typed client responses, MCP tool scopes, and a reusable fetch-handler/admin-token surface.
+For outside stacks, start with [docs/publication-integration-guide.md](./docs/publication-integration-guide.md). The v0.3.0 SDK release turns the v0.2.0 integration feedback into code: Express/Next adapters, first-run `ensureSchema()`, CLI token bootstrapping, category/tag columns plus filters, real total counts, client metadata generics, camelCase token records, and React hooks.
 
 ## What This Repo Contains
 
@@ -37,6 +39,7 @@ For outside stacks, start with [docs/publication-integration-guide.md](./docs/pu
 - `src/lib/publication-*` for the publication service layer
 - `packages/publication-platform` for the installable adapter/platform package
 - `packages/publication-client` for the installable hosted-service client package
+- `packages/publication-react` for the installable React hooks companion package
 - `docs/publications-authoring.md` for markdown/frontmatter authoring
 - `docs/publications-api-mcp.md` for the external API and MCP contract
 - `docs/publication-integration-guide.md` for integration into outside stacks
@@ -64,6 +67,7 @@ Optional:
 - `PUBLICATION_LOCAL_SEED_DEMO_CONTENT`
 - `PUBLICATION_ADMIN_EMAIL`
 - `PUBLICATION_ADMIN_PASSWORD`
+- `PUBLICATION_TOKEN_SECRET`
 - `OPENROUTER_API_KEY`
 - `PUBLICATION_AGENT_MODEL`
 
@@ -116,6 +120,33 @@ There is also a scaffold helper in `packages/publication-platform/src/template.t
 
 For hosted-service consumers, install `@publication-mcp-studio/client` and call the deployed REST/MCP endpoints instead of embedding the storage layer.
 
+For embedded-service consumers, the shortest v0.3 path is:
+
+```ts
+import express from 'express'
+import {
+  createNeonPublicationPlatform,
+  createPublicationExpressHandler,
+} from '@publication-mcp-studio/platform'
+
+const platform = createNeonPublicationPlatform({ databaseUrl: process.env.DATABASE_URL })
+await platform.ensureSchema()
+
+const app = express()
+app.use('/publications', createPublicationExpressHandler({
+  platform,
+  tokenSecrets: [process.env.PUBLICATION_TOKEN_SECRET!],
+}))
+```
+
+Then create a first token:
+
+```bash
+npx publication-mcp issue-token --label "My App" --scopes mcp:connect,articles:read --json
+```
+
+BYO routes remain supported as the advanced path when a host needs a custom REST shape.
+
 ## Governed Skills
 
 The MCP layer now includes a governed skill registry on top of core MCP primitives.
@@ -153,15 +184,18 @@ npm run check
 Integration examples:
 
 - [docs/publication-integration-guide.md](./docs/publication-integration-guide.md)
+- [docs/publication-rest-contract.md](./docs/publication-rest-contract.md)
+- [docs/metadata-conventions.md](./docs/metadata-conventions.md)
 - [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md)
+- [docs/sdk-integration-feedback-v0.2.0.md](./docs/sdk-integration-feedback-v0.2.0.md)
 - [templates/nextjs-embedded/README.md](./templates/nextjs-embedded/README.md)
 - [templates/hosted-client/README.md](./templates/hosted-client/README.md)
 
 ## Neon
 
-### Neon v0.2.0 Status
+### Neon v0.3.0 Status
 
-`@publication-mcp-studio/platform@0.2.0` includes the Neon HTTP fixes from integration testing: explicit row projections, no `RETURNING *`, safe nullable array handling, article `metadata`, and `migrateNeonPublicationPlatform()`. Run the migration before first use and keep a real Neon branch smoke test in your host CI.
+`@publication-mcp-studio/platform@0.3.0` includes the Neon HTTP fixes from integration testing: explicit row projections, no `RETURNING *`, safe nullable array handling, article `metadata`, first-class `category`, indexed `tags`, and `platform.ensureSchema()`. Run the migration before first use and keep a real Neon branch smoke test in your host CI.
 
 The Neon adapter uses Postgres for articles, versions, tokens, audit events, and media metadata.
 

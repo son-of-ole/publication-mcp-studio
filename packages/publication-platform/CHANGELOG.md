@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Added `platform.ensureSchema()` and wired the Neon adapter to run the idempotent migration from the platform object.
+- Added first-class `category` and `tags` article fields, SQL indexes, list filters, offset/cursor pagination, and `countArticles()`.
+- Added `createPublicationExpressHandler()` and `createPublicationNextRouteHandlers()` on top of the existing Fetch handler.
+- Added the `publication-mcp issue-token` CLI for first integration token bootstrap.
+- Added `PUBLICATION_SCOPES`, `tokens:read`, and `tokens:write`.
+- Fixed Neon `adminAuthStore` option handling, nullable audit UUID binding, and the known Neon empty-result driver crash.
+- Updated docs for the REST contract, metadata conventions, and v0.2.0 integration feedback.
+
 ## 0.2.0
 
 - Fixed the Neon adapter implementation to avoid `SELECT *`, avoid `RETURNING *`, explicitly cast decoded UUID/timestamp/array/json fields, and avoid binding nullable `text[]` values.

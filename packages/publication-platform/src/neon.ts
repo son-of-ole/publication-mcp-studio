@@ -38,13 +38,20 @@ CREATE TABLE IF NOT EXISTS public.articles (
   slug text NOT NULL UNIQUE,
   content_markdown text NOT NULL DEFAULT '',
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  category text NULL,
+  tags text[] NOT NULL DEFAULT '{}',
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 ALTER TABLE public.articles
-  ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS category text NULL,
+  ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS articles_category_idx ON public.articles (category);
+CREATE INDEX IF NOT EXISTS articles_tags_gin_idx ON public.articles USING gin (tags);
 
 CREATE TABLE IF NOT EXISTS public.publication_api_audit_log (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -148,6 +155,8 @@ const ARTICLE_COLUMNS = `
   slug,
   content_markdown,
   COALESCE(metadata, '{}'::jsonb)::text AS metadata_json,
+  category,
+  array_to_json(tags)::text AS tags_json,
   status,
   created_at::text AS created_at,
   updated_at::text AS updated_at
@@ -253,8 +262,16 @@ async function queryRows(sql: NeonSqlClient, statement: string, params: unknown[
     throw new PublicationApiError(500, 'neon_query_unavailable', 'The Neon SQL client does not expose sql.query.')
   }
 
-  const result = await sql.query(statement, params)
-  return (Array.isArray(result) ? result : result.rows ?? []) as Record<string, unknown>[]
+  try {
+    const result = await sql.query(statement, params)
+    return (Array.isArray(result) ? result : result.rows ?? []) as Record<string, unknown>[]
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message.includes("Cannot read properties of null (reading 'map')")) {
+      return []
+    }
+    throw error
+  }
 }
 
 export async function migrateNeonPublicationPlatform(options: NeonPublicationPlatformOptions = {}) {
@@ -371,6 +388,8 @@ function normalizeArticleRow(row: Record<string, unknown>): PublicationArticleRe
     slug: String(row.slug),
     content_markdown: String(row.content_markdown ?? ''),
     metadata: parseJsonObject(row.metadata_json),
+    category: row.category ? String(row.category) : null,
+    tags: parseJsonArray(row.tags_json),
     status: row.status === 'published' ? 'published' : 'draft',
     created_at: normalizeTimestamp(row.created_at),
     updated_at: normalizeTimestamp(row.updated_at),
@@ -453,6 +472,62 @@ function normalizeMediaRow(row: Record<string, unknown>): PublicationMediaAsset 
 
 function arraySql(value: string[]) {
   return value.length > 0 ? 'string_to_array($PARAM, \',\')::text[]' : 'ARRAY[]::text[]'
+}
+
+function uniqueTextArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return [...new Set(value.map((entry) => String(entry).trim()).filter(Boolean))]
+}
+
+function clampOffset(offset: number | undefined) {
+  if (!offset || Number.isNaN(offset)) {
+    return 0
+  }
+
+  return Math.max(0, Math.floor(offset))
+}
+
+function normalizeNullableUuid(value: unknown) {
+  const candidate = typeof value === 'string' ? value.trim() : ''
+  return candidate && isUuid(candidate) ? candidate : null
+}
+
+function applyArticleWhere(options: PublicationArticleListOptions, params: unknown[]) {
+  const where: string[] = []
+
+  if (options.status && options.status !== 'all') {
+    params.push(options.status)
+    where.push(`status = $${params.length}`)
+  }
+
+  if (options.search?.trim()) {
+    params.push(`%${options.search.trim()}%`)
+    where.push(`(title ILIKE $${params.length} OR slug ILIKE $${params.length} OR category ILIKE $${params.length})`)
+  }
+
+  if (options.category?.trim()) {
+    params.push(options.category.trim())
+    where.push(`category = $${params.length}`)
+  }
+
+  const requestedTags = uniqueTextArray([
+    ...(options.tag?.trim() ? [options.tag.trim()] : []),
+    ...(options.tags ?? []),
+  ])
+  if (requestedTags.length > 0) {
+    const tagsSql = replaceParam('$ARRAY', requestedTags, params)
+    where.push(`tags @> ${tagsSql}`)
+  }
+
+  if (options.cursor?.trim()) {
+    params.push(options.cursor.trim())
+    where.push(`created_at < $${params.length}::timestamptz`)
+  }
+
+  return where
 }
 
 function trimSlashes(value: string) {
@@ -552,30 +627,38 @@ export function createNeonPublicationPlatform(
     async listArticles(options: PublicationArticleListOptions = {}) {
       const limit = clampLimit(options.limit, 50, 100)
       const params: unknown[] = []
-      const where: string[] = []
-
-      if (options.status && options.status !== 'all') {
-        params.push(options.status)
-        where.push(`status = $${params.length}`)
-      }
-
-      if (options.search?.trim()) {
-        params.push(`%${options.search.trim()}%`)
-        where.push(`(title ILIKE $${params.length} OR slug ILIKE $${params.length})`)
-      }
+      const where = applyArticleWhere(options, params)
 
       params.push(limit)
+      const limitParam = params.length
+      params.push(clampOffset(options.offset))
+      const offsetParam = params.length
       const rows = await queryRows(
         sql,
         `SELECT ${ARTICLE_COLUMNS}
          FROM articles
          ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
          ORDER BY created_at DESC
-         LIMIT $${params.length}`,
+         LIMIT $${limitParam}
+         OFFSET $${offsetParam}`,
         params
       )
 
       return rows.map(normalizeArticleRow)
+    },
+
+    async countArticles(options: Omit<PublicationArticleListOptions, 'limit' | 'offset' | 'cursor'> = {}) {
+      const params: unknown[] = []
+      const where = applyArticleWhere(options, params)
+      const rows = await queryRows(
+        sql,
+        `SELECT COUNT(*)::int AS total
+         FROM articles
+         ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}`,
+        params
+      )
+
+      return Number(rows[0]?.total ?? 0)
     },
 
     async getArticleByIdentifier(identifier: string) {
@@ -596,20 +679,23 @@ export function createNeonPublicationPlatform(
     },
 
     async createArticle(input: PublicationArticleRecord) {
+      const params: unknown[] = [
+        input.id,
+        input.title,
+        input.slug,
+        input.content_markdown,
+        JSON.stringify(input.metadata ?? {}),
+        input.category ?? null,
+        input.status,
+        input.created_at,
+        input.updated_at,
+      ]
+      const tagsSql = replaceParam('$ARRAY', uniqueTextArray(input.tags), params)
       await queryRows(
         sql,
-        `INSERT INTO articles (id, title, slug, content_markdown, metadata, status, created_at, updated_at)
-         VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, $7::timestamptz, $8::timestamptz)`,
-        [
-          input.id,
-          input.title,
-          input.slug,
-          input.content_markdown,
-          JSON.stringify(input.metadata ?? {}),
-          input.status,
-          input.created_at,
-          input.updated_at,
-        ]
+        `INSERT INTO articles (id, title, slug, content_markdown, metadata, category, tags, status, created_at, updated_at)
+         VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, ${tagsSql}, $7, $8::timestamptz, $9::timestamptz)`,
+        params
       )
 
       const article = await getArticleById(input.id)
@@ -627,6 +713,18 @@ export function createNeonPublicationPlatform(
       }
 
       const nextArticle = { ...existingArticle, ...updates }
+      const params: unknown[] = [
+        existingArticle.id,
+        nextArticle.title,
+        nextArticle.slug,
+        nextArticle.content_markdown,
+        JSON.stringify(nextArticle.metadata ?? {}),
+        nextArticle.category ?? null,
+        nextArticle.status,
+        nextArticle.created_at,
+        nextArticle.updated_at,
+      ]
+      const tagsSql = replaceParam('$ARRAY', uniqueTextArray(nextArticle.tags), params)
       await queryRows(
         sql,
         `UPDATE articles
@@ -634,20 +732,13 @@ export function createNeonPublicationPlatform(
              slug = $3,
              content_markdown = $4,
              metadata = $5::jsonb,
-             status = $6,
-             created_at = $7::timestamptz,
-             updated_at = $8::timestamptz
+             category = $6,
+             tags = ${tagsSql},
+             status = $7,
+             created_at = $8::timestamptz,
+             updated_at = $9::timestamptz
          WHERE id = $1::uuid`,
-        [
-          existingArticle.id,
-          nextArticle.title,
-          nextArticle.slug,
-          nextArticle.content_markdown,
-          JSON.stringify(nextArticle.metadata ?? {}),
-          nextArticle.status,
-          nextArticle.created_at,
-          nextArticle.updated_at,
-        ]
+        params
       )
 
       const article = await getArticleById(existingArticle.id)
@@ -833,7 +924,7 @@ export function createNeonPublicationPlatform(
         input.actor_type,
         input.route,
         input.method,
-        input.article_id,
+        normalizeNullableUuid(input.article_id),
         input.article_slug,
         input.status,
         JSON.stringify(input.metadata ?? null),
@@ -986,11 +1077,12 @@ export function createNeonPublicationPlatform(
 
   return {
     kind: 'neon',
+    ensureSchema: () => migrateNeonPublicationPlatform(options).then(() => undefined),
     publicationStore,
     versionStore,
     tokenStore,
     auditStore,
     mediaStore,
-    adminAuthStore: localSupportPlatform.adminAuthStore,
+    adminAuthStore: options.adminAuthStore ?? localSupportPlatform.adminAuthStore,
   }
 }

@@ -74,6 +74,8 @@ function createInitialState(seedDemoContent: boolean): LocalState {
         slug: 'portable-publication-system-demo',
         content_markdown: LOCAL_DEMO_ARTICLE_MARKDOWN,
         metadata: {},
+        category: 'demo',
+        tags: ['demo', 'local-mode'],
         status: 'published',
         created_at: now,
         updated_at: now,
@@ -113,6 +115,51 @@ function compareByCreatedAtDesc(left: { created_at: string }, right: { created_a
   return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
 }
 
+function filterArticles(
+  articles: PublicationArticleRecord[],
+  options: PublicationArticleListOptions = {}
+) {
+  const search = options.search?.trim().toLowerCase()
+  const category = options.category?.trim().toLowerCase()
+  const tags = [
+    ...(options.tag ? [options.tag] : []),
+    ...(options.tags ?? []),
+  ].map((tag) => tag.trim().toLowerCase()).filter(Boolean)
+  const cursorTime = options.cursor ? new Date(options.cursor).getTime() : null
+
+  return articles.filter((article) => {
+    if (options.status && options.status !== 'all' && article.status !== options.status) {
+      return false
+    }
+
+    if (category && (article.category ?? '').toLowerCase() !== category) {
+      return false
+    }
+
+    if (tags.length > 0) {
+      const articleTags = new Set(article.tags.map((tag) => tag.toLowerCase()))
+      if (!tags.every((tag) => articleTags.has(tag))) {
+        return false
+      }
+    }
+
+    if (cursorTime && new Date(article.created_at).getTime() >= cursorTime) {
+      return false
+    }
+
+    if (!search) {
+      return true
+    }
+
+    return (
+      article.title.toLowerCase().includes(search) ||
+      article.slug.toLowerCase().includes(search) ||
+      (article.category ?? '').toLowerCase().includes(search) ||
+      article.tags.some((tag) => tag.toLowerCase().includes(search))
+    )
+  })
+}
+
 function compareByOptionalDateDesc(
   left: { updatedAt?: string; createdAt?: string },
   right: { updatedAt?: string; createdAt?: string }
@@ -128,6 +175,14 @@ function clampLimit(limit: number | undefined, fallback: number, max: number) {
   }
 
   return Math.min(max, Math.max(1, Math.floor(limit)))
+}
+
+function clampOffset(offset: number | undefined) {
+  if (!offset || Number.isNaN(offset)) {
+    return 0
+  }
+
+  return Math.max(0, Math.floor(offset))
 }
 
 export function createLocalPublicationPlatform(options: LocalPublicationPlatformOptions = {}): PublicationPlatform {
@@ -194,26 +249,17 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
   const publicationStore: PublicationStore = {
     async listArticles(options: PublicationArticleListOptions = {}) {
       const state = await ensureLocalState()
-      const search = options.search?.trim().toLowerCase()
       const limit = clampLimit(options.limit, 50, 100)
+      const offset = clampOffset(options.offset)
 
-      return state.articles
-        .filter((article) => {
-          if (options.status && options.status !== 'all' && article.status !== options.status) {
-            return false
-          }
-
-          if (!search) {
-            return true
-          }
-
-          return (
-            article.title.toLowerCase().includes(search) ||
-            article.slug.toLowerCase().includes(search)
-          )
-        })
+      return filterArticles(state.articles, options)
         .sort(compareByCreatedAtDesc)
-        .slice(0, limit)
+        .slice(offset, offset + limit)
+    },
+
+    async countArticles(options = {}) {
+      const state = await ensureLocalState()
+      return filterArticles(state.articles, options).length
     },
 
     async getArticleByIdentifier(identifier: string) {
@@ -450,6 +496,7 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
 
   return {
     kind: 'local',
+    async ensureSchema() {},
     publicationStore,
     versionStore,
     tokenStore,
