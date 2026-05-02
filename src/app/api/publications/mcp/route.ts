@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
+import { PUBLICATION_MCP_TOOL_SCOPES } from '@publication-platform/token-scopes'
 import { generatePublicationDraft } from '@/lib/publication-agent'
 import { recordPublicationAuditEvent } from '@/lib/publication-audit'
 import { buildPublicationDocumentIR } from '@/lib/publication-document-ir'
@@ -980,36 +981,7 @@ function getToolScope(toolName: string) {
     return skillToolScope
   }
 
-  switch (toolName) {
-    case 'list_articles':
-    case 'get_article':
-    case 'get_document_ir':
-    case 'export_document':
-    case 'list_verifiers':
-    case 'verify_document':
-    case 'run_publication_preset':
-      return 'articles:read'
-    case 'import_document':
-    case 'create_article':
-    case 'update_article':
-    case 'upload_media':
-      return 'articles:write'
-    case 'publish_article':
-      return 'articles:publish'
-    case 'delete_article':
-    case 'delete_media':
-      return 'articles:delete'
-    case 'list_media':
-      return 'articles:read'
-    case 'generate_publication_draft':
-      return 'agent:generate'
-    case 'list_article_versions':
-      return 'articles:read'
-    case 'restore_article_version':
-      return 'articles:write'
-    default:
-      return null
-  }
+  return PUBLICATION_MCP_TOOL_SCOPES[toolName as keyof typeof PUBLICATION_MCP_TOOL_SCOPES] ?? null
 }
 
 function mapToolNameToAuditAction(toolName: string) {

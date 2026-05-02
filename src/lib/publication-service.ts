@@ -44,6 +44,7 @@ export type PublicationArticleResponse = {
   status: PublicationArticleStatus
   createdAt: string
   updatedAt: string
+  metadata: Record<string, unknown>
   contentMarkdown?: string
   document: ReturnType<typeof extractPublicationDocument>
   presentation: ReturnType<typeof getPublicationPresentation>
@@ -236,6 +237,7 @@ export function serializePublicationArticle(
     status: article.status,
     createdAt: article.created_at,
     updatedAt: article.updated_at,
+    metadata: article.metadata ?? {},
     contentMarkdown: options.includeContent === false ? undefined : article.content_markdown,
     document,
     presentation,
@@ -272,6 +274,7 @@ export async function createPublicationArticle(input: PublicationArticleMutation
     title: articleTitle,
     slug,
     content_markdown: contentMarkdown,
+    metadata: input.customFrontmatter ?? {},
     status: input.status ?? 'draft',
     created_at: now,
     updated_at: now,
@@ -301,6 +304,7 @@ export async function updatePublicationArticle(
     title: nextTitle,
     slug: normalizeRequestedSlug(input.slug, nextTitle, existingArticle.slug),
     content_markdown: contentMarkdown,
+    metadata: input.customFrontmatter ?? existingArticle.metadata ?? {},
     status: input.status ?? existingArticle.status,
     updated_at: new Date().toISOString(),
   }
@@ -330,6 +334,10 @@ export async function publishPublicationArticle(identifier: string, actor?: Publ
     body: existingDocument.body,
     customFrontmatter: existingDocument.customFrontmatter,
   }, actor)
+}
+
+export async function unpublishPublicationArticle(identifier: string, actor?: PublicationAuthContext) {
+  return updatePublicationArticle(identifier, { status: 'draft' }, actor)
 }
 
 export async function deletePublicationArticle(identifier: string, actor?: PublicationAuthContext) {

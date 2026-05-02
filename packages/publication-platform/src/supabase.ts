@@ -19,6 +19,23 @@ import { PublicationApiError } from './errors'
 
 const SUPABASE_MEDIA_BUCKET = 'article-assets'
 
+function normalizeArticleRecord(record: PublicationArticleRecord): PublicationArticleRecord {
+  return {
+    ...record,
+    metadata:
+      record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+        ? record.metadata
+        : {},
+  }
+}
+
+function normalizeTokenRecord(record: PublicationTokenInventoryRecord): PublicationTokenInventoryRecord {
+  return {
+    ...record,
+    token_enabled_skill_ids: record.token_enabled_skill_ids ?? null,
+  }
+}
+
 function getRequiredSupabaseConfig() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()
@@ -67,7 +84,7 @@ const publicationStore: PublicationStore = {
       throw new PublicationApiError(500, 'articles_list_failed', error.message, error)
     }
 
-    return (data ?? []) as PublicationArticleRecord[]
+    return (data ?? []).map(normalizeArticleRecord)
   },
 
   async getArticleByIdentifier(identifier: string) {
@@ -83,7 +100,7 @@ const publicationStore: PublicationStore = {
         throw new PublicationApiError(500, 'article_lookup_failed', error.message, error)
       }
       if (data) {
-        return data as PublicationArticleRecord
+        return normalizeArticleRecord(data)
       }
     }
 
@@ -92,7 +109,7 @@ const publicationStore: PublicationStore = {
       throw new PublicationApiError(500, 'article_lookup_failed', error.message, error)
     }
 
-    return (data ?? null) as PublicationArticleRecord | null
+    return data ? normalizeArticleRecord(data) : null
   },
 
   async createArticle(input: PublicationArticleRecord) {
@@ -101,7 +118,7 @@ const publicationStore: PublicationStore = {
     if (error) {
       throw new PublicationApiError(500, 'article_create_failed', error.message, error)
     }
-    return data as PublicationArticleRecord
+    return normalizeArticleRecord(data)
   },
 
   async updateArticle(id: string, updates: Partial<PublicationArticleRecord>) {
@@ -110,7 +127,7 @@ const publicationStore: PublicationStore = {
     if (error) {
       throw new PublicationApiError(500, 'article_update_failed', error.message, error)
     }
-    return data as PublicationArticleRecord
+    return normalizeArticleRecord(data)
   },
 
   async deleteArticle(id: string) {
@@ -176,7 +193,7 @@ const tokenStore: TokenStore = {
         profile_id: input.profileId ?? null,
         profile_label: input.profileLabel ?? null,
         profile_enabled_skill_ids: input.profileEnabledSkillIds ?? [],
-        token_enabled_skill_ids: input.tokenEnabledSkillIds ?? null,
+        ...(input.tokenEnabledSkillIds ? { token_enabled_skill_ids: input.tokenEnabledSkillIds } : {}),
         allow_profile_skill_overrides: input.allowProfileSkillOverrides ?? false,
         issued_at: input.issuedAt,
         expires_at: input.expiresAt,
@@ -188,7 +205,7 @@ const tokenStore: TokenStore = {
       throw new PublicationApiError(500, 'token_inventory_create_failed', error.message, error)
     }
 
-    return data as PublicationTokenInventoryRecord
+    return normalizeTokenRecord(data as PublicationTokenInventoryRecord)
   },
 
   async listTokenRecords(limit = 50) {
@@ -203,7 +220,7 @@ const tokenStore: TokenStore = {
       throw new PublicationApiError(500, 'token_inventory_list_failed', error.message, error)
     }
 
-    return (data ?? []) as PublicationTokenInventoryRecord[]
+    return (data ?? []).map((entry) => normalizeTokenRecord(entry as PublicationTokenInventoryRecord))
   },
 
   async getTokenRecord(tokenId: string) {
@@ -218,7 +235,7 @@ const tokenStore: TokenStore = {
       throw new PublicationApiError(500, 'token_inventory_lookup_failed', error.message, error)
     }
 
-    return (data ?? null) as PublicationTokenInventoryRecord | null
+    return data ? normalizeTokenRecord(data as PublicationTokenInventoryRecord) : null
   },
 
   async revokeTokenRecord(tokenId: string) {
@@ -238,7 +255,7 @@ const tokenStore: TokenStore = {
       throw new PublicationApiError(500, 'token_inventory_revoke_failed', error.message, error)
     }
 
-    return data as PublicationTokenInventoryRecord
+    return normalizeTokenRecord(data as PublicationTokenInventoryRecord)
   },
 
   async touchTokenRecord(tokenId: string, route: string, method: string) {

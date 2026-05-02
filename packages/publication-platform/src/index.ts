@@ -11,11 +11,18 @@ import type {
 } from './types'
 
 export * from './errors'
+export * from './auth'
+export * from './frontmatter'
+export * from './http'
 export * from './media-storage'
 export * from './token-scopes'
 export * from './types'
 export { createLocalPublicationPlatform } from './local'
-export { createNeonPublicationPlatform } from './neon'
+export {
+  createNeonPublicationPlatform,
+  migrateNeonPublicationPlatform,
+  NEON_PUBLICATION_SCHEMA_SQL,
+} from './neon'
 export { createSupabasePublicationPlatform } from './supabase'
 export {
   createTemplatePublicationPlatform,

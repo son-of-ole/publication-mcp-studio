@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
+  authenticatePublicationRequest,
   createPublicationPlatformRegistry,
+  formatArticleFrontmatter,
   getAvailablePublicationPlatformAdapters,
   getLocalPublicationPlatformOptionsFromEnv,
   getPublicationMediaBucketName,
@@ -10,6 +13,11 @@ import {
   hasPublicationS3MediaStorageConfig,
   hasNeonPublicationPlatformConfig,
   hasSupabasePublicationPlatformConfig,
+  issuePublicationToken,
+  migrateNeonPublicationPlatform,
+  NEON_PUBLICATION_SCHEMA_SQL,
+  parseArticleFrontmatter,
+  PUBLICATION_MCP_TOOL_SCOPES,
   resolvePublicationMediaStorageDriver,
   resolvePublicationPlatformAdapterName,
 } from '@publication-mcp-studio/platform'
@@ -177,4 +185,93 @@ test('threads local adapter env options into the registry', async () => {
 
   assert.equal(platform.kind, 'local')
   assert.deepEqual(articles, [])
+})
+
+test('ships canonical MCP tool scope metadata', () => {
+  assert.equal(PUBLICATION_MCP_TOOL_SCOPES.create_article, 'articles:write')
+  assert.equal(PUBLICATION_MCP_TOOL_SCOPES.publish_article, 'articles:publish')
+  assert.equal(PUBLICATION_MCP_TOOL_SCOPES.generate_publication_draft, 'agent:generate')
+})
+
+test('frontmatter helpers parse and format canonical article metadata', () => {
+  const markdown = formatArticleFrontmatter(
+    {
+      title: 'SDK Article',
+      authors: ['Ada', 'Grace'],
+      category: 'science',
+    },
+    '## Body'
+  )
+  const parsed = parseArticleFrontmatter(markdown)
+
+  assert.deepEqual(parsed.frontmatter, {
+    title: 'SDK Article',
+    authors: ['Ada', 'Grace'],
+    category: 'science',
+  })
+  assert.equal(parsed.body, '## Body')
+})
+
+test('auth helper verifies signed tokens, registry records, scopes, and touch metadata', async () => {
+  const platform = createPublicationPlatformRegistry({
+    PUBLICATION_LOCAL_ROOT_DIR: '/tmp/publication-platform-auth-helper',
+    PUBLICATION_LOCAL_SEED_DEMO_CONTENT: 'false',
+  }).local()
+  const issuedAt = new Date().toISOString()
+  const expiresAt = new Date(Date.now() + 60_000).toISOString()
+  const tokenRecord = await platform.tokenStore.createTokenRecord({
+    label: 'SDK Auth Test',
+    scopes: ['articles:read'],
+    issuedAt,
+    expiresAt,
+  })
+  const issued = issuePublicationToken({
+    tokenId: tokenRecord.id,
+    label: tokenRecord.label,
+    scopes: tokenRecord.scopes,
+    issuedAt,
+    expiresAt,
+    secret: 'test-secret',
+  })
+  const auth = await authenticatePublicationRequest({
+    headers: new Headers({ authorization: `Bearer ${issued.token}` }),
+    requiredScopes: ['articles:read'],
+    platform,
+    secrets: ['test-secret'],
+    route: '/tests',
+    method: 'GET',
+  })
+  const touchedRecord = await platform.tokenStore.getTokenRecord(tokenRecord.id)
+
+  assert.equal(auth.tokenId, tokenRecord.id)
+  assert.equal(touchedRecord?.last_used_route, '/tests')
+  await assert.rejects(
+    () => authenticatePublicationRequest({
+      headers: new Headers({ authorization: `Bearer ${issued.token}` }),
+      requiredScopes: ['articles:write'],
+      platform,
+      secrets: ['test-secret'],
+    }),
+    /missing the required scope/
+  )
+})
+
+test('neon adapter avoids fragile SELECT star and RETURNING star patterns', async () => {
+  const source = await readFile(new URL('../src/neon.ts', import.meta.url), 'utf8')
+
+  assert.equal(/\bSELECT\s+\*/i.test(source), false)
+  assert.equal(/\bRETURNING\s+\*/i.test(source), false)
+  assert.match(source, /id::text AS id/)
+  assert.match(source, /metadata jsonb NOT NULL DEFAULT/)
+})
+
+test('neon migration helper and packaged SQL include metadata schema', async () => {
+  const migrationFile = await readFile(
+    new URL('../migrations/neon_schema.sql', import.meta.url),
+    'utf8'
+  )
+
+  assert.equal(typeof migrateNeonPublicationPlatform, 'function')
+  assert.match(NEON_PUBLICATION_SCHEMA_SQL, /metadata jsonb NOT NULL DEFAULT/)
+  assert.match(migrationFile, /metadata jsonb NOT NULL DEFAULT/)
 })

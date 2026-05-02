@@ -11,7 +11,7 @@ The goal is to keep the repo honest about what works today, what blocked an outs
 
 The SDK direction is right: a hosted client package plus an embedded platform/adapter package is the correct integration model. The v0.1.0 release also proved that external consumers can install the packages from npm.
 
-The biggest gap is productization. A host still has to write too much route, auth, migration, and metadata glue. The highest-impact next implementation release should focus on making Neon reliable, shipping migrations, making metadata explicit, and providing reference auth/routes.
+The biggest gap was productization. The `0.2.0` implementation release addresses the first tranche directly: Neon reliability, migrations, explicit article metadata, reusable auth helpers, typed client responses, MCP tool scopes, and a reference fetch handler/admin token surface.
 
 ## Blockers
 
@@ -33,7 +33,7 @@ Required fix:
 - Never bind `null` for `text[]`; omit nullable array columns or use explicit empty arrays/defaults.
 - Add a real Neon HTTP smoke test in CI.
 
-Until this is fixed, the README should treat Neon as experimental rather than production-supported.
+Status: addressed in `@publication-mcp-studio/platform@0.2.0` with explicit projections, write-then-select behavior, nullable-array normalization, and regression tests. Hosts should still keep a real Neon HTTP smoke test in their own CI.
 
 ### B. Missing Migration Surface
 
@@ -118,10 +118,10 @@ Priority README/docs fixes:
 
 ## One-Week Priority Plan
 
-1. Fix the Neon adapter: no `SELECT *`, no `RETURNING *`, no nullable `text[]` bindings, plus real Neon HTTP CI smoke coverage.
-2. Ship migrations: `migrateNeonPublicationPlatform()` plus canonical SQL included in the package.
-3. Decide and implement the metadata contract.
-4. Ship canonical auth helpers, `PUBLICATION_MCP_TOOL_SCOPES`, and a reference route package.
-5. Type the client return values and add a tiny admin login/token UI.
+1. Fixed in `0.2.0`: Neon adapter avoids `SELECT *`, avoids `RETURNING *`, avoids nullable `text[]` bindings, and has static regression coverage.
+2. Fixed in `0.2.0`: migrations ship through `migrateNeonPublicationPlatform()` plus packaged SQL.
+3. Fixed in `0.2.0`: article records now have an explicit `metadata` contract.
+4. Partially fixed in `0.2.0`: canonical auth helpers, `PUBLICATION_MCP_TOOL_SCOPES`, and a framework-neutral reference handler are shipped; framework-specific Express/Hono packages can still be added later.
+5. Partially fixed in `0.2.0`: client return values, errors, token helpers, and MCP helpers are typed; a richer admin UI can still be added later.
 
 If items 1 through 4 land, an outside host should be able to integrate Publication MCP Studio in roughly 100 lines of glue code instead of writing a parallel adapter and route layer.

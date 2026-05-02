@@ -6,10 +6,14 @@ CREATE TABLE IF NOT EXISTS public.articles (
   title text NOT NULL,
   slug text NOT NULL UNIQUE,
   content_markdown text NOT NULL DEFAULT '',
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+ALTER TABLE public.articles
+  ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 -- 2. Turn on Row Level Security
 ALTER TABLE public.articles ENABLE ROW LEVEL SECURITY;

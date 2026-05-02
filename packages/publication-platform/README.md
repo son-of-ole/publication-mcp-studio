@@ -46,7 +46,7 @@ Update guidance:
 Selection behavior:
 
 - `PUBLICATION_PLATFORM_ADAPTER=local` forces the filesystem adapter
-- `PUBLICATION_PLATFORM_ADAPTER=neon` forces the experimental Neon adapter
+- `PUBLICATION_PLATFORM_ADAPTER=neon` forces the Neon/Postgres adapter
 - `PUBLICATION_PLATFORM_ADAPTER=supabase` forces the Supabase adapter
 - if no explicit adapter is set, the package auto-selects `supabase` when the required Supabase env vars are present, then `neon` when a Neon database URL is present, and otherwise falls back to `local`
 - `PUBLICATION_LOCAL_ROOT_DIR` lets another host app point local persistence at its own project root
@@ -69,9 +69,9 @@ Host app integration:
 
 Neon status:
 
-- the current Neon adapter is experimental after live integration testing found blocking Neon HTTP driver issues around `SELECT *`, `RETURNING *`, nullable `text[]` bindings, and first-run migrations
-- prefer `local` or `supabase` for production until a Neon-fix release lands
-- see the repo feedback tracker for the concrete fix list
+- `0.2.0` fixes the known Neon HTTP driver issues around `SELECT *`, `RETURNING *`, nullable `text[]` bindings, and first-run migrations
+- run `migrateNeonPublicationPlatform()` or apply the packaged `migrations/neon_schema.sql` before first use
+- keep a real Neon branch smoke test in the host app before production rollout
 
 See:
 

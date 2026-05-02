@@ -1,4 +1,5 @@
 import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { neon } from '@neondatabase/serverless'
@@ -19,25 +20,218 @@ import type {
   PublicationMediaAsset,
   PublicationMediaUploadPayload,
   PublicationPlatform,
+  PublicationStore,
   PublicationTokenInventoryRecord,
   PublicationVersionStore,
-  PublicationStore,
   TokenStore,
 } from './types'
 
 const LOCAL_NEON_MEDIA_BUCKET = 'local-publication-assets'
 const NEON_MEDIA_PUBLIC_PREFIX = '/__publication-local/media'
 
+export const NEON_PUBLICATION_SCHEMA_SQL = `
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS public.articles (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title text NOT NULL,
+  slug text NOT NULL UNIQUE,
+  content_markdown text NOT NULL DEFAULT '',
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.articles
+  ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS public.publication_api_audit_log (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  action text NOT NULL,
+  actor_label text NOT NULL,
+  actor_type text NOT NULL,
+  scopes text[] NOT NULL DEFAULT '{}',
+  route text NOT NULL,
+  method text NOT NULL,
+  article_id uuid NULL REFERENCES public.articles(id) ON DELETE SET NULL,
+  article_slug text NULL,
+  status text NOT NULL DEFAULT 'success',
+  metadata jsonb NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.publication_api_tokens (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  label text NOT NULL,
+  token_type text NOT NULL DEFAULT 'signed',
+  scopes text[] NOT NULL DEFAULT '{}',
+  profile_id text NULL,
+  profile_label text NULL,
+  profile_enabled_skill_ids text[] NOT NULL DEFAULT '{}',
+  token_enabled_skill_ids text[] NULL,
+  allow_profile_skill_overrides boolean NOT NULL DEFAULT false,
+  issued_at timestamp with time zone NOT NULL,
+  expires_at timestamp with time zone NOT NULL,
+  revoked_at timestamp with time zone NULL,
+  last_used_at timestamp with time zone NULL,
+  last_used_route text NULL,
+  last_used_method text NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.publication_api_tokens
+  ADD COLUMN IF NOT EXISTS profile_id text NULL,
+  ADD COLUMN IF NOT EXISTS profile_label text NULL,
+  ADD COLUMN IF NOT EXISTS profile_enabled_skill_ids text[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS token_enabled_skill_ids text[] NULL,
+  ADD COLUMN IF NOT EXISTS allow_profile_skill_overrides boolean NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS public.publication_article_versions (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  article_id uuid NOT NULL REFERENCES public.articles(id) ON DELETE CASCADE,
+  version_number integer NOT NULL,
+  source_action text NOT NULL,
+  title text NOT NULL,
+  slug text NOT NULL,
+  content_markdown text NOT NULL,
+  status text NOT NULL CHECK (status IN ('draft', 'published')),
+  actor_label text NULL,
+  actor_type text NULL,
+  metadata jsonb NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE(article_id, version_number)
+);
+
+CREATE TABLE IF NOT EXISTS public.publication_media_assets (
+  path text PRIMARY KEY,
+  bucket text NOT NULL,
+  public_url text NOT NULL,
+  file_name text NOT NULL,
+  content_type text NOT NULL,
+  size_bytes bigint NULL,
+  kind text NOT NULL CHECK (kind IN ('image', 'video', 'audio', 'document', 'other')),
+  article_slug text NOT NULL,
+  embed_markdown text NOT NULL DEFAULT '',
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION update_modified_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+DROP TRIGGER IF EXISTS update_articles_modtime ON public.articles;
+CREATE TRIGGER update_articles_modtime
+  BEFORE UPDATE ON public.articles
+  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_publication_api_tokens_modtime ON public.publication_api_tokens;
+CREATE TRIGGER update_publication_api_tokens_modtime
+  BEFORE UPDATE ON public.publication_api_tokens
+  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_publication_media_assets_modtime ON public.publication_media_assets;
+CREATE TRIGGER update_publication_media_assets_modtime
+  BEFORE UPDATE ON public.publication_media_assets
+  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+`
+
+const ARTICLE_COLUMNS = `
+  id::text AS id,
+  title,
+  slug,
+  content_markdown,
+  COALESCE(metadata, '{}'::jsonb)::text AS metadata_json,
+  status,
+  created_at::text AS created_at,
+  updated_at::text AS updated_at
+`
+
+const VERSION_COLUMNS = `
+  id::text AS id,
+  article_id::text AS article_id,
+  version_number,
+  source_action,
+  title,
+  slug,
+  content_markdown,
+  status,
+  actor_label,
+  actor_type,
+  metadata::text AS metadata_json,
+  created_at::text AS created_at
+`
+
+const TOKEN_COLUMNS = `
+  id::text AS id,
+  label,
+  token_type,
+  array_to_json(scopes)::text AS scopes_json,
+  profile_id,
+  profile_label,
+  array_to_json(profile_enabled_skill_ids)::text AS profile_enabled_skill_ids_json,
+  CASE
+    WHEN token_enabled_skill_ids IS NULL THEN NULL
+    ELSE array_to_json(token_enabled_skill_ids)::text
+  END AS token_enabled_skill_ids_json,
+  allow_profile_skill_overrides,
+  issued_at::text AS issued_at,
+  expires_at::text AS expires_at,
+  revoked_at::text AS revoked_at,
+  last_used_at::text AS last_used_at,
+  last_used_route,
+  last_used_method,
+  created_at::text AS created_at,
+  updated_at::text AS updated_at
+`
+
+const AUDIT_COLUMNS = `
+  id::text AS id,
+  action,
+  actor_label,
+  actor_type,
+  array_to_json(scopes)::text AS scopes_json,
+  route,
+  method,
+  article_id::text AS article_id,
+  article_slug,
+  status,
+  metadata::text AS metadata_json,
+  created_at::text AS created_at
+`
+
+const MEDIA_COLUMNS = `
+  bucket,
+  path,
+  public_url,
+  file_name,
+  content_type,
+  size_bytes,
+  kind,
+  article_slug,
+  embed_markdown,
+  created_at::text AS created_at,
+  updated_at::text AS updated_at
+`
+
+type NeonSqlClient = ReturnType<typeof neon> & {
+  query?: (text: string, params?: unknown[]) => Promise<unknown[] | { rows?: unknown[] }>
+}
+
 function getNeonDatabaseUrl(options: NeonPublicationPlatformOptions = {}, env: NodeJS.ProcessEnv = process.env) {
-  const candidates = [
+  const databaseUrl = [
     options.databaseUrl,
     env.NEON_DATABASE_URL,
     env.DATABASE_URL,
     env.POSTGRES_URL,
     env.POSTGRES_PRISMA_URL,
-  ]
-
-  const databaseUrl = candidates.find((value) => value?.trim())?.trim()
+  ].find((value) => value?.trim())?.trim()
 
   if (!databaseUrl) {
     throw new PublicationApiError(
@@ -51,7 +245,71 @@ function getNeonDatabaseUrl(options: NeonPublicationPlatformOptions = {}, env: N
 }
 
 function createNeonSql(options: NeonPublicationPlatformOptions = {}) {
-  return neon(getNeonDatabaseUrl(options))
+  return neon(getNeonDatabaseUrl(options)) as NeonSqlClient
+}
+
+async function queryRows(sql: NeonSqlClient, statement: string, params: unknown[] = []) {
+  if (typeof sql.query !== 'function') {
+    throw new PublicationApiError(500, 'neon_query_unavailable', 'The Neon SQL client does not expose sql.query.')
+  }
+
+  const result = await sql.query(statement, params)
+  return (Array.isArray(result) ? result : result.rows ?? []) as Record<string, unknown>[]
+}
+
+export async function migrateNeonPublicationPlatform(options: NeonPublicationPlatformOptions = {}) {
+  const sql = createNeonSql(options)
+  const statements = splitSqlStatements(NEON_PUBLICATION_SCHEMA_SQL)
+
+  for (const statement of statements) {
+    await queryRows(sql, statement)
+  }
+
+  return {
+    ok: true,
+    statements: statements.length,
+  }
+}
+
+function splitSqlStatements(sql: string) {
+  const statements: string[] = []
+  let current = ''
+  let dollarQuote: string | null = null
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const rest = sql.slice(index)
+    const dollarMatch = /^\$[A-Za-z0-9_]*\$/.exec(rest)
+    if (dollarMatch) {
+      const tag = dollarMatch[0]
+      if (!dollarQuote) {
+        dollarQuote = tag
+      } else if (dollarQuote === tag) {
+        dollarQuote = null
+      }
+      current += tag
+      index += tag.length - 1
+      continue
+    }
+
+    const char = sql[index]
+    if (char === ';' && !dollarQuote) {
+      const statement = current.trim()
+      if (statement) {
+        statements.push(statement)
+      }
+      current = ''
+      continue
+    }
+
+    current += char
+  }
+
+  const tail = current.trim()
+  if (tail) {
+    statements.push(tail)
+  }
+
+  return statements
 }
 
 function clampLimit(limit: number | undefined, fallback: number, max: number) {
@@ -66,15 +324,56 @@ function isUuid(identifier: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identifier)
 }
 
+function parseJsonObject(value: unknown) {
+  if (!value) {
+    return {}
+  }
+
+  if (typeof value === 'object') {
+    return value as Record<string, unknown>
+  }
+
+  try {
+    const parsed = JSON.parse(String(value))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function parseJsonArray(value: unknown) {
+  if (!value) {
+    return []
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === 'string')
+  }
+
+  try {
+    const parsed = JSON.parse(String(value))
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function normalizeTimestamp(value: unknown) {
+  return value ? new Date(String(value)).toISOString() : new Date(0).toISOString()
+}
+
 function normalizeArticleRow(row: Record<string, unknown>): PublicationArticleRecord {
   return {
     id: String(row.id),
     title: String(row.title),
     slug: String(row.slug),
     content_markdown: String(row.content_markdown ?? ''),
+    metadata: parseJsonObject(row.metadata_json),
     status: row.status === 'published' ? 'published' : 'draft',
-    created_at: new Date(String(row.created_at)).toISOString(),
-    updated_at: new Date(String(row.updated_at)).toISOString(),
+    created_at: normalizeTimestamp(row.created_at),
+    updated_at: normalizeTimestamp(row.updated_at),
   }
 }
 
@@ -90,9 +389,8 @@ function normalizeVersionRow(row: Record<string, unknown>): PublicationArticleVe
     status: row.status === 'published' ? 'published' : 'draft',
     actor_label: row.actor_label ? String(row.actor_label) : null,
     actor_type: row.actor_type ? String(row.actor_type) : null,
-    metadata:
-      row.metadata && typeof row.metadata === 'object' ? (row.metadata as Record<string, unknown>) : null,
-    created_at: new Date(String(row.created_at)).toISOString(),
+    metadata: row.metadata_json ? parseJsonObject(row.metadata_json) : null,
+    created_at: normalizeTimestamp(row.created_at),
   }
 }
 
@@ -101,24 +399,22 @@ function normalizeTokenRow(row: Record<string, unknown>): PublicationTokenInvent
     id: String(row.id),
     label: String(row.label),
     token_type: 'signed',
-    scopes: Array.isArray(row.scopes) ? row.scopes.filter((value): value is PublicationTokenInventoryRecord['scopes'][number] => typeof value === 'string') : [],
+    scopes: parseJsonArray(row.scopes_json) as PublicationTokenInventoryRecord['scopes'],
     profile_id: row.profile_id ? String(row.profile_id) : null,
     profile_label: row.profile_label ? String(row.profile_label) : null,
-    profile_enabled_skill_ids: Array.isArray(row.profile_enabled_skill_ids)
-      ? row.profile_enabled_skill_ids.filter((value): value is string => typeof value === 'string')
-      : [],
-    token_enabled_skill_ids: Array.isArray(row.token_enabled_skill_ids)
-      ? row.token_enabled_skill_ids.filter((value): value is string => typeof value === 'string')
+    profile_enabled_skill_ids: parseJsonArray(row.profile_enabled_skill_ids_json),
+    token_enabled_skill_ids: row.token_enabled_skill_ids_json
+      ? parseJsonArray(row.token_enabled_skill_ids_json)
       : null,
     allow_profile_skill_overrides: row.allow_profile_skill_overrides === true,
-    issued_at: new Date(String(row.issued_at)).toISOString(),
-    expires_at: new Date(String(row.expires_at)).toISOString(),
-    revoked_at: row.revoked_at ? new Date(String(row.revoked_at)).toISOString() : null,
-    last_used_at: row.last_used_at ? new Date(String(row.last_used_at)).toISOString() : null,
+    issued_at: normalizeTimestamp(row.issued_at),
+    expires_at: normalizeTimestamp(row.expires_at),
+    revoked_at: row.revoked_at ? normalizeTimestamp(row.revoked_at) : null,
+    last_used_at: row.last_used_at ? normalizeTimestamp(row.last_used_at) : null,
     last_used_route: row.last_used_route ? String(row.last_used_route) : null,
     last_used_method: row.last_used_method ? String(row.last_used_method) : null,
-    created_at: new Date(String(row.created_at)).toISOString(),
-    updated_at: new Date(String(row.updated_at)).toISOString(),
+    created_at: normalizeTimestamp(row.created_at),
+    updated_at: normalizeTimestamp(row.updated_at),
   }
 }
 
@@ -128,15 +424,14 @@ function normalizeAuditRow(row: Record<string, unknown>): PublicationAuditEntry 
     action: row.action as PublicationAuditEntry['action'],
     actor_label: String(row.actor_label),
     actor_type: String(row.actor_type),
-    scopes: Array.isArray(row.scopes) ? row.scopes.filter((value): value is string => typeof value === 'string') : [],
+    scopes: parseJsonArray(row.scopes_json),
     route: String(row.route),
     method: String(row.method),
     article_id: row.article_id ? String(row.article_id) : null,
     article_slug: row.article_slug ? String(row.article_slug) : null,
     status: String(row.status),
-    metadata:
-      row.metadata && typeof row.metadata === 'object' ? (row.metadata as Record<string, unknown>) : null,
-    created_at: new Date(String(row.created_at)).toISOString(),
+    metadata: row.metadata_json ? parseJsonObject(row.metadata_json) : null,
+    created_at: normalizeTimestamp(row.created_at),
   }
 }
 
@@ -151,17 +446,13 @@ function normalizeMediaRow(row: Record<string, unknown>): PublicationMediaAsset 
     kind: (row.kind as PublicationMediaAsset['kind']) || 'other',
     articleSlug: String(row.article_slug),
     embedMarkdown: String(row.embed_markdown ?? ''),
-    createdAt: row.created_at ? new Date(String(row.created_at)).toISOString() : undefined,
-    updatedAt: row.updated_at ? new Date(String(row.updated_at)).toISOString() : undefined,
+    createdAt: row.created_at ? normalizeTimestamp(row.created_at) : undefined,
+    updatedAt: row.updated_at ? normalizeTimestamp(row.updated_at) : undefined,
   }
 }
 
-function buildScopeArrayExpression(scopes: string[]) {
-  const scopesCsv = scopes.join(',')
-  return {
-    scopesCsv,
-    hasScopes: scopesCsv.length > 0,
-  }
+function arraySql(value: string[]) {
+  return value.length > 0 ? 'string_to_array($PARAM, \',\')::text[]' : 'ARRAY[]::text[]'
 }
 
 function trimSlashes(value: string) {
@@ -211,6 +502,16 @@ function createS3Client(options: NonNullable<NeonPublicationPlatformOptions['med
   })
 }
 
+function replaceParam(sql: string, value: string[], params: unknown[]) {
+  const expression = arraySql(value)
+  if (expression.includes('$PARAM')) {
+    params.push(value.join(','))
+    return sql.replace('$ARRAY', expression.replace('$PARAM', `$${params.length}`))
+  }
+
+  return sql.replace('$ARRAY', expression)
+}
+
 export function createNeonPublicationPlatform(
   options: NeonPublicationPlatformOptions = {}
 ): PublicationPlatform {
@@ -242,46 +543,37 @@ export function createNeonPublicationPlatform(
   const localPublicRoot = path.join(rootDir, 'public', '__publication-local')
   const localMediaRoot = path.join(localPublicRoot, 'media')
 
+  async function getArticleById(id: string) {
+    const rows = await queryRows(sql, `SELECT ${ARTICLE_COLUMNS} FROM articles WHERE id = $1::uuid LIMIT 1`, [id])
+    return rows[0] ? normalizeArticleRow(rows[0]) : null
+  }
+
   const publicationStore: PublicationStore = {
     async listArticles(options: PublicationArticleListOptions = {}) {
       const limit = clampLimit(options.limit, 50, 100)
-      const search = options.search?.trim()
+      const params: unknown[] = []
+      const where: string[] = []
 
-      let rows: Record<string, unknown>[] = []
-
-      if (options.status && options.status !== 'all' && search) {
-        rows = await sql`
-          SELECT *
-          FROM articles
-          WHERE status = ${options.status}
-            AND (title ILIKE ${`%${search}%`} OR slug ILIKE ${`%${search}%`})
-          ORDER BY created_at DESC
-          LIMIT ${limit}
-        `
-      } else if (options.status && options.status !== 'all') {
-        rows = await sql`
-          SELECT *
-          FROM articles
-          WHERE status = ${options.status}
-          ORDER BY created_at DESC
-          LIMIT ${limit}
-        `
-      } else if (search) {
-        rows = await sql`
-          SELECT *
-          FROM articles
-          WHERE title ILIKE ${`%${search}%`} OR slug ILIKE ${`%${search}%`}
-          ORDER BY created_at DESC
-          LIMIT ${limit}
-        `
-      } else {
-        rows = await sql`
-          SELECT *
-          FROM articles
-          ORDER BY created_at DESC
-          LIMIT ${limit}
-        `
+      if (options.status && options.status !== 'all') {
+        params.push(options.status)
+        where.push(`status = $${params.length}`)
       }
+
+      if (options.search?.trim()) {
+        params.push(`%${options.search.trim()}%`)
+        where.push(`(title ILIKE $${params.length} OR slug ILIKE $${params.length})`)
+      }
+
+      params.push(limit)
+      const rows = await queryRows(
+        sql,
+        `SELECT ${ARTICLE_COLUMNS}
+         FROM articles
+         ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+         ORDER BY created_at DESC
+         LIMIT $${params.length}`,
+        params
+      )
 
       return rows.map(normalizeArticleRow)
     },
@@ -292,163 +584,140 @@ export function createNeonPublicationPlatform(
         return null
       }
 
-      let rows: Record<string, unknown>[] = []
-
       if (isUuid(cleanIdentifier)) {
-        rows = await sql`
-          SELECT *
-          FROM articles
-          WHERE id = ${cleanIdentifier}
-          LIMIT 1
-        `
-
-        if (rows[0]) {
-          return normalizeArticleRow(rows[0])
+        const article = await getArticleById(cleanIdentifier)
+        if (article) {
+          return article
         }
       }
 
-      rows = await sql`
-        SELECT *
-        FROM articles
-        WHERE slug = ${cleanIdentifier}
-        LIMIT 1
-      `
-
+      const rows = await queryRows(sql, `SELECT ${ARTICLE_COLUMNS} FROM articles WHERE slug = $1 LIMIT 1`, [cleanIdentifier])
       return rows[0] ? normalizeArticleRow(rows[0]) : null
     },
 
     async createArticle(input: PublicationArticleRecord) {
-      const rows = await sql`
-        INSERT INTO articles (
-          id,
-          title,
-          slug,
-          content_markdown,
-          status,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          ${input.id},
-          ${input.title},
-          ${input.slug},
-          ${input.content_markdown},
-          ${input.status},
-          ${input.created_at},
-          ${input.updated_at}
-        )
-        RETURNING *
-      `
+      await queryRows(
+        sql,
+        `INSERT INTO articles (id, title, slug, content_markdown, metadata, status, created_at, updated_at)
+         VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, $7::timestamptz, $8::timestamptz)`,
+        [
+          input.id,
+          input.title,
+          input.slug,
+          input.content_markdown,
+          JSON.stringify(input.metadata ?? {}),
+          input.status,
+          input.created_at,
+          input.updated_at,
+        ]
+      )
 
-      if (!rows[0]) {
+      const article = await getArticleById(input.id)
+      if (!article) {
         throw new PublicationApiError(500, 'article_create_failed', 'Neon did not return the created article.')
       }
 
-      return normalizeArticleRow(rows[0])
+      return article
     },
 
     async updateArticle(id: string, updates: Partial<PublicationArticleRecord>) {
       const existingArticle = await publicationStore.getArticleByIdentifier(id)
-
       if (!existingArticle) {
         throw new PublicationApiError(404, 'article_not_found', `Article ${id} was not found.`)
       }
 
-      const nextArticle = {
-        ...existingArticle,
-        ...updates,
-      }
+      const nextArticle = { ...existingArticle, ...updates }
+      await queryRows(
+        sql,
+        `UPDATE articles
+         SET title = $2,
+             slug = $3,
+             content_markdown = $4,
+             metadata = $5::jsonb,
+             status = $6,
+             created_at = $7::timestamptz,
+             updated_at = $8::timestamptz
+         WHERE id = $1::uuid`,
+        [
+          existingArticle.id,
+          nextArticle.title,
+          nextArticle.slug,
+          nextArticle.content_markdown,
+          JSON.stringify(nextArticle.metadata ?? {}),
+          nextArticle.status,
+          nextArticle.created_at,
+          nextArticle.updated_at,
+        ]
+      )
 
-      const rows = await sql`
-        UPDATE articles
-        SET
-          title = ${nextArticle.title},
-          slug = ${nextArticle.slug},
-          content_markdown = ${nextArticle.content_markdown},
-          status = ${nextArticle.status},
-          created_at = ${nextArticle.created_at},
-          updated_at = ${nextArticle.updated_at}
-        WHERE id = ${existingArticle.id}
-        RETURNING *
-      `
-
-      if (!rows[0]) {
+      const article = await getArticleById(existingArticle.id)
+      if (!article) {
         throw new PublicationApiError(500, 'article_update_failed', 'Neon did not return the updated article.')
       }
 
-      return normalizeArticleRow(rows[0])
+      return article
     },
 
     async deleteArticle(id: string) {
-      await sql`
-        DELETE FROM articles
-        WHERE id = ${id}
-      `
+      await queryRows(sql, 'DELETE FROM articles WHERE id = $1::uuid', [id])
     },
   }
 
   const versionStore: PublicationVersionStore = {
     async createVersion(input) {
-      const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null
-      const rows = await sql`
-        INSERT INTO publication_article_versions (
-          article_id,
-          version_number,
-          source_action,
-          title,
-          slug,
-          content_markdown,
-          status,
-          actor_label,
-          actor_type,
-          metadata,
-          created_at
+      const id = randomUUID()
+      await queryRows(
+        sql,
+        `INSERT INTO publication_article_versions (
+          id, article_id, version_number, source_action, title, slug, content_markdown,
+          status, actor_label, actor_type, metadata, created_at
         )
-        VALUES (
-          ${input.article_id},
-          ${input.version_number},
-          ${input.source_action},
-          ${input.title},
-          ${input.slug},
-          ${input.content_markdown},
-          ${input.status},
-          ${input.actor_label},
-          ${input.actor_type},
-          ${metadataJson}::jsonb,
-          NOW()
-        )
-        RETURNING *
-      `
+        VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW())`,
+        [
+          id,
+          input.article_id,
+          input.version_number,
+          input.source_action,
+          input.title,
+          input.slug,
+          input.content_markdown,
+          input.status,
+          input.actor_label,
+          input.actor_type,
+          JSON.stringify(input.metadata ?? null),
+        ]
+      )
 
+      const rows = await queryRows(sql, `SELECT ${VERSION_COLUMNS} FROM publication_article_versions WHERE id = $1::uuid`, [id])
       if (!rows[0]) {
-        throw new PublicationApiError(
-          500,
-          'article_version_create_failed',
-          'Neon did not return the created article version.'
-        )
+        throw new PublicationApiError(500, 'article_version_create_failed', 'Neon did not return the created article version.')
       }
 
       return normalizeVersionRow(rows[0])
     },
 
     async listVersions(articleId: string) {
-      const rows = await sql`
-        SELECT *
-        FROM publication_article_versions
-        WHERE article_id = ${articleId}
-        ORDER BY version_number DESC
-      `
+      const rows = await queryRows(
+        sql,
+        `SELECT ${VERSION_COLUMNS}
+         FROM publication_article_versions
+         WHERE article_id = $1::uuid
+         ORDER BY version_number DESC`,
+        [articleId]
+      )
 
       return rows.map(normalizeVersionRow)
     },
 
     async getVersion(articleId: string, versionId: string) {
-      const rows = await sql`
-        SELECT *
-        FROM publication_article_versions
-        WHERE article_id = ${articleId} AND id = ${versionId}
-        LIMIT 1
-      `
+      const rows = await queryRows(
+        sql,
+        `SELECT ${VERSION_COLUMNS}
+         FROM publication_article_versions
+         WHERE article_id = $1::uuid AND id = $2::uuid
+         LIMIT 1`,
+        [articleId, versionId]
+      )
 
       return rows[0] ? normalizeVersionRow(rows[0]) : null
     },
@@ -456,91 +725,100 @@ export function createNeonPublicationPlatform(
 
   const tokenStore: TokenStore = {
     async createTokenRecord(input) {
-      const rows = await sql`
-        INSERT INTO publication_api_tokens (
-          label,
-          token_type,
-          scopes,
-          profile_id,
-          profile_label,
-          profile_enabled_skill_ids,
-          token_enabled_skill_ids,
-          allow_profile_skill_overrides,
-          issued_at,
-          expires_at
+      const id = randomUUID()
+      const params: unknown[] = [
+        id,
+        input.label,
+        input.profileId ?? null,
+        input.profileLabel ?? null,
+        input.allowProfileSkillOverrides ?? false,
+        input.issuedAt,
+        input.expiresAt,
+      ]
+      let scopesSql = replaceParam('$ARRAY', input.scopes, params)
+      scopesSql = scopesSql.replace(`$${params.length}`, '$8')
+      const scopesParam = params.pop()
+      params.push(scopesParam)
+      const profileSql = replaceParam('$ARRAY', input.profileEnabledSkillIds ?? [], params)
+      let tokenSql = 'NULL'
+
+      if (input.tokenEnabledSkillIds && input.tokenEnabledSkillIds.length > 0) {
+        tokenSql = replaceParam('$ARRAY', input.tokenEnabledSkillIds, params)
+      }
+
+      await queryRows(
+        sql,
+        `INSERT INTO publication_api_tokens (
+          id, label, token_type, profile_id, profile_label, allow_profile_skill_overrides,
+          issued_at, expires_at, scopes, profile_enabled_skill_ids, token_enabled_skill_ids
         )
         VALUES (
-          ${input.label},
-          'signed',
-          ${input.scopes},
-          ${input.profileId ?? null},
-          ${input.profileLabel ?? null},
-          ${input.profileEnabledSkillIds ?? []},
-          ${input.tokenEnabledSkillIds ?? null},
-          ${input.allowProfileSkillOverrides ?? false},
-          ${input.issuedAt},
-          ${input.expiresAt}
-        )
-        RETURNING *
-      `
+          $1::uuid, $2, 'signed', $3, $4, $5, $6::timestamptz, $7::timestamptz,
+          ${scopesSql}, ${profileSql}, ${tokenSql}
+        )`,
+        params
+      )
 
-      if (!rows[0]) {
+      const token = await tokenStore.getTokenRecord(id)
+      if (!token) {
         throw new PublicationApiError(500, 'token_inventory_create_failed', 'Neon did not return the created token.')
       }
 
-      return normalizeTokenRow(rows[0])
+      return token
     },
 
     async listTokenRecords(limit = 50) {
-      const rows = await sql`
-        SELECT *
-        FROM publication_api_tokens
-        ORDER BY created_at DESC
-        LIMIT ${clampLimit(limit, 50, 100)}
-      `
+      const rows = await queryRows(
+        sql,
+        `SELECT ${TOKEN_COLUMNS}
+         FROM publication_api_tokens
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [clampLimit(limit, 50, 100)]
+      )
 
       return rows.map(normalizeTokenRow)
     },
 
     async getTokenRecord(tokenId: string) {
-      const rows = await sql`
-        SELECT *
-        FROM publication_api_tokens
-        WHERE id = ${tokenId}
-        LIMIT 1
-      `
+      const rows = await queryRows(
+        sql,
+        `SELECT ${TOKEN_COLUMNS}
+         FROM publication_api_tokens
+         WHERE id = $1::uuid
+         LIMIT 1`,
+        [tokenId]
+      )
 
       return rows[0] ? normalizeTokenRow(rows[0]) : null
     },
 
     async revokeTokenRecord(tokenId: string) {
-      const rows = await sql`
-        UPDATE publication_api_tokens
-        SET
-          revoked_at = NOW(),
-          updated_at = NOW()
-        WHERE id = ${tokenId}
-        RETURNING *
-      `
+      await queryRows(
+        sql,
+        `UPDATE publication_api_tokens
+         SET revoked_at = NOW(), updated_at = NOW()
+         WHERE id = $1::uuid`,
+        [tokenId]
+      )
 
-      if (!rows[0]) {
+      const token = await tokenStore.getTokenRecord(tokenId)
+      if (!token) {
         throw new PublicationApiError(404, 'token_not_found', `Token ${tokenId} was not found.`)
       }
 
-      return normalizeTokenRow(rows[0])
+      return token
     },
 
     async touchTokenRecord(tokenId: string, route: string, method: string) {
       try {
-        await sql`
-          UPDATE publication_api_tokens
-          SET
-            last_used_at = NOW(),
-            last_used_route = ${route},
-            last_used_method = ${method},
-            updated_at = NOW()
-          WHERE id = ${tokenId}
-        `
+        await queryRows(
+          sql,
+          `UPDATE publication_api_tokens
+           SET last_used_at = NOW(), last_used_route = $2, last_used_method = $3, updated_at = NOW()
+           WHERE id = $1::uuid`,
+          [tokenId, route, method]
+        )
       } catch (error) {
         console.error('Failed to update publication token last-used metadata:', error)
       }
@@ -549,74 +827,38 @@ export function createNeonPublicationPlatform(
 
   const auditStore: AuditStore = {
     async recordEvent(input) {
-      const { scopesCsv, hasScopes } = buildScopeArrayExpression(input.scopes)
-      const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null
+      const params: unknown[] = [
+        input.action,
+        input.actor_label,
+        input.actor_type,
+        input.route,
+        input.method,
+        input.article_id,
+        input.article_slug,
+        input.status,
+        JSON.stringify(input.metadata ?? null),
+      ]
+      const scopesSql = replaceParam('$ARRAY', input.scopes, params)
 
-      if (hasScopes) {
-        await sql`
-          INSERT INTO publication_api_audit_log (
-            action,
-            actor_label,
-            actor_type,
-            scopes,
-            route,
-            method,
-            article_id,
-            article_slug,
-            status,
-            metadata
-          )
-          VALUES (
-            ${input.action},
-            ${input.actor_label},
-            ${input.actor_type},
-            string_to_array(${scopesCsv}, ',')::text[],
-            ${input.route},
-            ${input.method},
-            ${input.article_id},
-            ${input.article_slug},
-            ${input.status},
-            ${metadataJson}::jsonb
-          )
-        `
-        return
-      }
-
-      await sql`
-        INSERT INTO publication_api_audit_log (
-          action,
-          actor_label,
-          actor_type,
-          scopes,
-          route,
-          method,
-          article_id,
-          article_slug,
-          status,
-          metadata
+      await queryRows(
+        sql,
+        `INSERT INTO publication_api_audit_log (
+          action, actor_label, actor_type, route, method, article_id, article_slug, status, metadata, scopes
         )
-        VALUES (
-          ${input.action},
-          ${input.actor_label},
-          ${input.actor_type},
-          ARRAY[]::text[],
-          ${input.route},
-          ${input.method},
-          ${input.article_id},
-          ${input.article_slug},
-          ${input.status},
-          ${metadataJson}::jsonb
-        )
-      `
+        VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, $9::jsonb, ${scopesSql})`,
+        params
+      )
     },
 
     async listEvents(limit = 30) {
-      const rows = await sql`
-        SELECT *
-        FROM publication_api_audit_log
-        ORDER BY created_at DESC
-        LIMIT ${clampLimit(limit, 30, 100)}
-      `
+      const rows = await queryRows(
+        sql,
+        `SELECT ${AUDIT_COLUMNS}
+         FROM publication_api_audit_log
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [clampLimit(limit, 30, 100)]
+      )
 
       return rows.map(normalizeAuditRow)
     },
@@ -675,32 +917,26 @@ export function createNeonPublicationPlatform(
         sizeBytes = fileStats.size
       }
 
-      const rows = await sql`
-        INSERT INTO publication_media_assets (
+      await queryRows(
+        sql,
+        `INSERT INTO publication_media_assets (
+          bucket, path, public_url, file_name, content_type, size_bytes, kind, article_slug, embed_markdown
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
           bucket,
-          path,
-          public_url,
-          file_name,
-          content_type,
-          size_bytes,
-          kind,
-          article_slug,
-          embed_markdown
-        )
-        VALUES (
-          ${bucket},
-          ${objectKey},
-          ${publicUrl},
-          ${fileName},
-          ${input.contentType},
-          ${sizeBytes},
-          ${input.kind},
-          ${input.articleSlug},
-          ${input.embedMarkdown.replaceAll(`/${input.articleSlug}/${input.fileName}`, publicUrl)}
-        )
-        RETURNING *
-      `
+          objectKey,
+          publicUrl,
+          fileName,
+          input.contentType,
+          sizeBytes,
+          input.kind,
+          input.articleSlug,
+          input.embedMarkdown.replaceAll(`/${input.articleSlug}/${input.fileName}`, publicUrl),
+        ]
+      )
 
+      const rows = await queryRows(sql, `SELECT ${MEDIA_COLUMNS} FROM publication_media_assets WHERE path = $1`, [objectKey])
       if (!rows[0]) {
         throw new PublicationApiError(500, 'media_upload_failed', 'Neon did not return the uploaded media asset.')
       }
@@ -709,28 +945,27 @@ export function createNeonPublicationPlatform(
     },
 
     async listMedia(articleSlug: string, limit = 50) {
-      const rows = await sql`
-        SELECT *
-        FROM publication_media_assets
-        WHERE article_slug = ${articleSlug}
-        ORDER BY updated_at DESC
-        LIMIT ${clampLimit(limit, 50, 200)}
-      `
+      const rows = await queryRows(
+        sql,
+        `SELECT ${MEDIA_COLUMNS}
+         FROM publication_media_assets
+         WHERE article_slug = $1
+         ORDER BY updated_at DESC
+         LIMIT $2`,
+        [articleSlug, clampLimit(limit, 50, 200)]
+      )
 
       return rows.map(normalizeMediaRow)
     },
 
     async deleteMedia(pathToDelete: string) {
-      const rows = await sql`
-        DELETE FROM publication_media_assets
-        WHERE path = ${pathToDelete}
-        RETURNING *
-      `
-
+      const rows = await queryRows(sql, `SELECT ${MEDIA_COLUMNS} FROM publication_media_assets WHERE path = $1`, [pathToDelete])
       const asset = rows[0] ? normalizeMediaRow(rows[0]) : null
       if (!asset) {
         return
       }
+
+      await queryRows(sql, 'DELETE FROM publication_media_assets WHERE path = $1', [pathToDelete])
 
       if (mediaStorageDriver === 's3') {
         await s3Client?.send(

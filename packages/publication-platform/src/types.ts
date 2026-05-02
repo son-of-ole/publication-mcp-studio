@@ -7,6 +7,7 @@ export type PublicationArticleRecord = {
   title: string
   slug: string
   content_markdown: string
+  metadata: Record<string, unknown>
   status: PublicationArticleStatus
   created_at: string
   updated_at: string
@@ -285,4 +286,13 @@ export type SupabasePublicationPlatformOptions = {
 export type NeonPublicationPlatformOptions = LocalPublicationPlatformOptions & {
   databaseUrl?: string
   mediaStorage?: import('./media-storage').PublicationMediaStorageOptions
+}
+
+export type PublicationTokenSecretProvider = {
+  secrets: string[]
+  staticTokens?: string[]
+}
+
+export type PublicationRequestAuthResult = PublicationAuthContext & {
+  tokenRecord?: PublicationTokenInventoryRecord
 }

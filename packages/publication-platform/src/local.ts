@@ -73,6 +73,7 @@ function createInitialState(seedDemoContent: boolean): LocalState {
         title: 'Portable Publication System Demo',
         slug: 'portable-publication-system-demo',
         content_markdown: LOCAL_DEMO_ARTICLE_MARKDOWN,
+        metadata: {},
         status: 'published',
         created_at: now,
         updated_at: now,

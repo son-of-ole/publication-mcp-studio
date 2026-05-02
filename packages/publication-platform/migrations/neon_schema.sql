@@ -1,5 +1,6 @@
--- Run this in your Neon SQL editor to set up the Publication MCP Studio schema.
--- This schema is plain Postgres and can also be used with a standard Postgres database.
+-- Canonical Neon/Postgres schema for @publication-mcp-studio/platform.
+-- This file is shipped with the npm package for hosts that prefer SQL migrations.
+-- The same schema is also available programmatically through migrateNeonPublicationPlatform().
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -88,26 +89,3 @@ CREATE TABLE IF NOT EXISTS public.publication_media_assets (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
-
-CREATE OR REPLACE FUNCTION update_modified_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
-DROP TRIGGER IF EXISTS update_articles_modtime ON public.articles;
-CREATE TRIGGER update_articles_modtime
-  BEFORE UPDATE ON public.articles
-  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
-
-DROP TRIGGER IF EXISTS update_publication_api_tokens_modtime ON public.publication_api_tokens;
-CREATE TRIGGER update_publication_api_tokens_modtime
-  BEFORE UPDATE ON public.publication_api_tokens
-  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
-
-DROP TRIGGER IF EXISTS update_publication_media_assets_modtime ON public.publication_media_assets;
-CREATE TRIGGER update_publication_media_assets_modtime
-  BEFORE UPDATE ON public.publication_media_assets
-  FOR EACH ROW EXECUTE PROCEDURE update_modified_column();

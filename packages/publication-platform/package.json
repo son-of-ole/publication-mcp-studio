@@ -1,18 +1,19 @@
 {
   "name": "@publication-mcp-studio/platform",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Stack-agnostic publication platform adapters and contracts for Publication MCP Studio integrations.",
   "license": "MIT",
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "sideEffects": false,
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/local.ts src/neon.ts src/supabase.ts src/template.ts src/types.ts src/errors.ts src/media-storage.ts src/token-scopes.ts --format esm --dts --clean",
+    "build": "tsup src/index.ts src/local.ts src/neon.ts src/supabase.ts src/template.ts src/types.ts src/errors.ts src/auth.ts src/frontmatter.ts src/http.ts src/media-storage.ts src/token-scopes.ts --format esm --dts --clean",
     "test": "tsx --test test/**/*.test.ts",
     "prepublishOnly": "npm run build"
   },
@@ -33,6 +34,18 @@
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./frontmatter": {
+      "types": "./dist/frontmatter.d.ts",
+      "import": "./dist/frontmatter.js"
+    },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
     },
     "./media-storage": {
       "types": "./dist/media-storage.d.ts",

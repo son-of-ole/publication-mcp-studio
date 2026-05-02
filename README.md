@@ -27,7 +27,7 @@ npm install @publication-mcp-studio/platform
 - [`@publication-mcp-studio/client`](https://www.npmjs.com/package/@publication-mcp-studio/client) is the fetch-based SDK for apps that call a hosted Publication MCP Studio service over REST and MCP.
 - [`@publication-mcp-studio/platform`](https://www.npmjs.com/package/@publication-mcp-studio/platform) is the adapter/platform SDK for apps that want to embed publication persistence directly into their own backend.
 
-For outside stacks, start with [docs/publication-integration-guide.md](./docs/publication-integration-guide.md). Current v0.1.0 integration feedback and the next Neon/auth/productization priorities are tracked in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
+For outside stacks, start with [docs/publication-integration-guide.md](./docs/publication-integration-guide.md). The v0.2.0 SDK release turns the v0.1.0 testing feedback into code: Neon SQL fixes, migrations, article metadata, auth helpers, typed client responses, MCP tool scopes, and a reusable fetch-handler/admin-token surface.
 
 ## What This Repo Contains
 
@@ -108,7 +108,7 @@ Current adapters:
 
 - `supabase`
 - `local`
-- `neon` (experimental in v0.1.0; see [Neon v0.1.0 caveat](#neon-v010-caveat))
+- `neon`
 
 To integrate this into another stack later, add a new adapter that satisfies those interfaces and update the platform selection logic in `packages/publication-platform/src/index.ts`.
 
@@ -159,9 +159,9 @@ Integration examples:
 
 ## Neon
 
-### Neon v0.1.0 Caveat
+### Neon v0.2.0 Status
 
-The current `@publication-mcp-studio/platform` Neon adapter is experimental. Live testing against stock Neon HTTP/Postgres environments found blocking adapter bugs around `SELECT *` type decoding, `RETURNING *`, nullable `text[]` bindings, and missing first-run migration helpers. Until a Neon-fix release lands, prefer the `local` or `supabase` adapter for production integrations, or use a host-owned custom Neon adapter that applies the workarounds documented in [docs/sdk-integration-feedback-v0.1.0.md](./docs/sdk-integration-feedback-v0.1.0.md).
+`@publication-mcp-studio/platform@0.2.0` includes the Neon HTTP fixes from integration testing: explicit row projections, no `RETURNING *`, safe nullable array handling, article `metadata`, and `migrateNeonPublicationPlatform()`. Run the migration before first use and keep a real Neon branch smoke test in your host CI.
 
 The Neon adapter uses Postgres for articles, versions, tokens, audit events, and media metadata.
 

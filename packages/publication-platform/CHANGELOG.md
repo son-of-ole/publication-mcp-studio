@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Fixed the Neon adapter implementation to avoid `SELECT *`, avoid `RETURNING *`, explicitly cast decoded UUID/timestamp/array/json fields, and avoid binding nullable `text[]` values.
+- Added `migrateNeonPublicationPlatform()` and shipped the canonical Neon SQL migration in the npm package.
+- Added `metadata` to the article storage contract and SQL schemas.
+- Added frontmatter helpers, token issue/verify/auth helpers, canonical MCP tool scope metadata, and a framework-neutral reference fetch handler with a tiny admin token UI.
+- Typed the client SDK response shapes, added `PublicationClientError`, `AbortSignal` support, relative base URL support, token helpers, and `listTools()` / `callTool()`.
+
 ## 0.1.2
 
 - Clarified that the Neon adapter remains experimental until a future Neon-fix release, rather than implying the documentation-only `0.1.1` release fixed it.
