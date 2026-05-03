@@ -10,11 +10,11 @@ This project is primarily an **SDK distributed via npm** — the `@publication-m
 
 ### SDK location and publish workflow
 
-- **Source of truth**: `lib/publication-platform/` (workspace package, currently v0.3.0).
+- **Source of truth**: `packages/publication-platform/` (workspace package, currently v0.3.0; mirrors the GitHub layout).
 - The api-server consumes it via `workspace:*`, so `src/*.ts` edits flow through esbuild at api-server restart — no SDK rebuild needed during development.
 - Build / test: `pnpm --filter @publication-mcp-studio/platform build` (tsup → `dist/`) and `pnpm --filter @publication-mcp-studio/platform test` (25 unit tests).
-- Publish to npm: bump `package.json#version` + `CHANGELOG.md`, then `cd lib/publication-platform && npm publish` (the `prepublishOnly` script re-runs build + tests). `publishConfig.exports` rewrites the public exports to `dist/*.js` so npm consumers get compiled JS while the workspace keeps using `src/`.
-- See `lib/publication-platform/PUBLISHING.md` for the full step-by-step.
+- Publish to npm: bump `package.json#version` + `CHANGELOG.md`, then `cd packages/publication-platform && npm publish` (the `prepublishOnly` script re-runs build + tests). `publishConfig.exports` rewrites the public exports to `dist/*.js` so npm consumers get compiled JS while the workspace keeps using `src/`.
+- See `packages/publication-platform/PUBLISHING.md` for the full step-by-step.
 
 ## Stack
 

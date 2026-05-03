@@ -1,6 +1,6 @@
 # Publishing the SDK
 
-This package (`@publication-mcp-studio/platform`) lives inside the Replit pnpm workspace at `lib/publication-platform/`. It is the **source of truth** — edit it here, test it against the reference api-server / publication-studio in this Replit, then publish to npm and push to GitHub.
+This package (`@publication-mcp-studio/platform`) lives inside the Replit pnpm workspace at `packages/publication-platform/` (mirroring the GitHub layout). It is the **source of truth** — edit it here, test it against the reference api-server / publication-studio in this Replit, then publish to npm and push to GitHub.
 
 ## Workflow
 
@@ -9,7 +9,7 @@ This package (`@publication-mcp-studio/platform`) lives inside the Replit pnpm w
 The api-server consumes the SDK via `workspace:*`, so edits to `src/*.ts` are picked up by esbuild on the next api-server restart — no rebuild needed.
 
 ```bash
-# After editing lib/publication-platform/src/*
+# After editing packages/publication-platform/src/*
 # Restart the api-server workflow, then:
 node /tmp/e2e.mjs                   # run the api-server e2e suite
 pnpm --filter @publication-mcp-studio/platform test   # run SDK unit tests
@@ -18,8 +18,8 @@ pnpm --filter @publication-mcp-studio/platform test   # run SDK unit tests
 ### 2. Bump the version + changelog
 
 ```bash
-# Edit lib/publication-platform/package.json (bump "version")
-# Edit lib/publication-platform/CHANGELOG.md (prepend release notes)
+# Edit packages/publication-platform/package.json (bump "version")
+# Edit packages/publication-platform/CHANGELOG.md (prepend release notes)
 ```
 
 ### 3. Build + verify
@@ -35,7 +35,7 @@ pnpm --filter @publication-mcp-studio/platform typecheck  # tsc --noEmit
 ### 4. Publish to npm
 
 ```bash
-cd lib/publication-platform
+cd packages/publication-platform
 npm login                # one-time, interactive
 npm publish              # runs prepublishOnly → build + test
 ```
@@ -44,10 +44,10 @@ npm publish              # runs prepublishOnly → build + test
 
 ### 5. Push to GitHub
 
-The repo's `origin` is `https://github.com/son-of-ole/publication-mcp-studio`. The SDK lives at `packages/publication-platform/` on GitHub but at `lib/publication-platform/` here. If you want the GitHub layout to match, mirror the directory before pushing (or change the `directory` field in `package.json#repository`).
+The repo's `origin` is `https://github.com/son-of-ole/publication-mcp-studio`. The SDK lives at `packages/publication-platform/` both here and on GitHub.
 
 ```bash
-git add lib/publication-platform
+git add packages/publication-platform pnpm-workspace.yaml replit.md
 git commit -m "publication-platform: vX.Y.Z"
 git tag publication-platform@X.Y.Z
 git push origin main --tags
