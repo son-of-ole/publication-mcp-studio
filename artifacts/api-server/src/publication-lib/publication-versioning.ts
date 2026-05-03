@@ -11,19 +11,19 @@ export async function createPublicationArticleVersionSnapshot(input: {
   const platform = getPublicationPlatform()
   const latestVersion = (await platform.versionStore.listVersions(input.article.id))[0] ?? null
 
-  const nextVersionNumber = (latestVersion?.version_number ?? 0) + 1
+  const nextVersionNumber = (latestVersion?.versionNumber ?? 0) + 1
   return platform.versionStore.createVersion({
-      article_id: input.article.id,
-      version_number: nextVersionNumber,
-      source_action: input.sourceAction,
-      title: input.article.title,
-      slug: input.article.slug,
-      content_markdown: input.article.content_markdown,
-      status: input.article.status,
-      actor_label: input.actor?.label ?? null,
-      actor_type: input.actor?.tokenType ?? null,
-      metadata: input.metadata ?? null,
-    })
+    articleId: input.article.id,
+    versionNumber: nextVersionNumber,
+    sourceAction: input.sourceAction,
+    title: input.article.title,
+    slug: input.article.slug,
+    contentMarkdown: input.article.contentMarkdown,
+    status: input.article.status,
+    actorLabel: input.actor?.label ?? null,
+    actorType: input.actor?.tokenType ?? null,
+    metadata: input.metadata ?? null,
+  })
 }
 
 export async function listPublicationArticleVersions(identifier: string) {
@@ -50,12 +50,12 @@ export async function restorePublicationArticleVersion(input: {
 
   const restoredAt = new Date().toISOString()
   const updatedArticle = await platform.publicationStore.updateArticle(article.id, {
-      title: version.title,
-      slug: version.slug,
-      content_markdown: version.content_markdown,
-      status: version.status,
-      updated_at: restoredAt,
-    })
+    title: version.title,
+    slug: version.slug,
+    contentMarkdown: version.contentMarkdown,
+    status: version.status,
+    updatedAt: restoredAt,
+  })
 
   await createPublicationArticleVersionSnapshot({
     article: updatedArticle,
@@ -63,7 +63,7 @@ export async function restorePublicationArticleVersion(input: {
     actor: input.actor,
     metadata: {
       restoredFromVersionId: version.id,
-      restoredFromVersionNumber: version.version_number,
+      restoredFromVersionNumber: version.versionNumber,
     },
   })
 

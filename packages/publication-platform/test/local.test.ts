@@ -35,13 +35,13 @@ test('persists articles and token records across adapter instances', async (t) =
     id: 'article-1',
     title: 'Portable Adapter Article',
     slug: 'portable-adapter-article',
-    content_markdown: '# Portable Adapter Article',
+    contentMarkdown: '# Portable Adapter Article',
     metadata: {},
     category: 'engineering',
     tags: ['portable', 'adapter'],
     status: 'draft',
-    created_at: now,
-    updated_at: now,
+    createdAt: now,
+    updatedAt: now,
   })
 
   const tokenRecord = await firstPlatform.tokenStore.createTokenRecord({
@@ -53,13 +53,13 @@ test('persists articles and token records across adapter instances', async (t) =
 
   await firstPlatform.auditStore.recordEvent({
     action: 'articles.create',
-    actor_label: 'Test Suite',
-    actor_type: 'static',
+    actorLabel: 'Test Suite',
+    actorType: 'static',
     scopes: ['articles:write'],
     route: '/tests',
     method: 'POST',
-    article_id: 'article-1',
-    article_slug: 'portable-adapter-article',
+    articleId: 'article-1',
+    articleSlug: 'portable-adapter-article',
     status: 'success',
     metadata: { source: 'node-test' },
   })
@@ -96,25 +96,25 @@ test('filters and counts local articles by category, tags, cursor, and offset', 
       id: 'article-a',
       title: 'Scientific Launch',
       slug: 'scientific-launch',
-      content_markdown: '# Scientific Launch',
+      contentMarkdown: '# Scientific Launch',
       metadata: {},
       category: 'science',
       tags: ['latex', 'lean'],
       status: 'published' as const,
-      created_at: '2026-05-01T12:00:00.000Z',
-      updated_at: '2026-05-01T12:00:00.000Z',
+      createdAt: '2026-05-01T12:00:00.000Z',
+      updatedAt: '2026-05-01T12:00:00.000Z',
     },
     {
       id: 'article-b',
       title: 'SEO Playbook',
       slug: 'seo-playbook',
-      content_markdown: '# SEO Playbook',
+      contentMarkdown: '# SEO Playbook',
       metadata: {},
       category: 'marketing',
       tags: ['seo'],
       status: 'published' as const,
-      created_at: '2026-05-02T12:00:00.000Z',
-      updated_at: '2026-05-02T12:00:00.000Z',
+      createdAt: '2026-05-02T12:00:00.000Z',
+      updatedAt: '2026-05-02T12:00:00.000Z',
     },
   ]
 
@@ -211,29 +211,29 @@ test('serializes concurrent local writes to avoid lost article updates', async (
     id: 'article-1',
     title: 'Concurrent Local Write Test',
     slug: 'concurrent-local-write-test',
-    content_markdown: '# Initial',
+    contentMarkdown: '# Initial',
     metadata: {},
     category: 'tests',
     tags: ['concurrency'],
     status: 'draft',
-    created_at: now,
-    updated_at: now,
+    createdAt: now,
+    updatedAt: now,
   })
 
   await Promise.all([
     platform.publicationStore.updateArticle('article-1', {
-      content_markdown: '# Updated',
-      updated_at: new Date(Date.now() + 1_000).toISOString(),
+      contentMarkdown: '# Updated',
+      updatedAt: new Date(Date.now() + 1_000).toISOString(),
     }),
     platform.auditStore.recordEvent({
       action: 'articles.update',
-      actor_label: 'Test Suite',
-      actor_type: 'static',
+      actorLabel: 'Test Suite',
+      actorType: 'static',
       scopes: ['articles:write'],
       route: '/tests',
       method: 'PATCH',
-      article_id: 'article-1',
-      article_slug: 'concurrent-local-write-test',
+      articleId: 'article-1',
+      articleSlug: 'concurrent-local-write-test',
       status: 'success',
       metadata: { source: 'concurrency-test' },
     }),
@@ -243,6 +243,6 @@ test('serializes concurrent local writes to avoid lost article updates', async (
   const article = await reloadedPlatform.publicationStore.getArticleByIdentifier('concurrent-local-write-test')
   const auditEvents = await reloadedPlatform.auditStore.listEvents()
 
-  assert.equal(article?.content_markdown, '# Updated')
+  assert.equal(article?.contentMarkdown, '# Updated')
   assert.equal(auditEvents[0]?.action, 'articles.update')
 })

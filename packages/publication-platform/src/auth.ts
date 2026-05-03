@@ -155,8 +155,8 @@ export async function authenticatePublicationRequest(input: {
     tokenId: tokenRecord.id,
     label: tokenRecord.label,
     scopes: tokenRecord.scopes,
-    profileId: tokenRecord.profile_id,
-    profileLabel: tokenRecord.profile_label,
+    profileId: tokenRecord.profileId,
+    profileLabel: tokenRecord.profileLabel,
     enabledSkillIds: resolveEnabledSkillIds(tokenRecord),
     adminVisibility: false,
     tokenRecord,
@@ -188,11 +188,11 @@ function readHeader(headers: Headers | Record<string, string | string[] | undefi
 }
 
 function assertTokenRecordUsable(tokenRecord: PublicationTokenInventoryRecord) {
-  if (tokenRecord.revoked_at) {
+  if (tokenRecord.revokedAt) {
     throw new PublicationApiError(401, 'token_revoked', 'This publication token has been revoked.')
   }
 
-  if (new Date(tokenRecord.expires_at).getTime() <= Date.now()) {
+  if (new Date(tokenRecord.expiresAt).getTime() <= Date.now()) {
     throw new PublicationApiError(401, 'token_expired', 'This publication token has expired.')
   }
 }
@@ -213,16 +213,16 @@ function assertScopes(scopes: Array<PublicationTokenScope | '*'>, requiredScopes
 }
 
 function resolveEnabledSkillIds(tokenRecord: PublicationTokenInventoryRecord) {
-  if (tokenRecord.allow_profile_skill_overrides && tokenRecord.token_enabled_skill_ids) {
-    return tokenRecord.token_enabled_skill_ids
+  if (tokenRecord.allowProfileSkillOverrides && tokenRecord.tokenEnabledSkillIds) {
+    return tokenRecord.tokenEnabledSkillIds
   }
 
-  if (tokenRecord.token_enabled_skill_ids) {
-    const allowed = new Set(tokenRecord.profile_enabled_skill_ids)
-    return tokenRecord.token_enabled_skill_ids.filter((skillId) => allowed.has(skillId))
+  if (tokenRecord.tokenEnabledSkillIds) {
+    const allowed = new Set(tokenRecord.profileEnabledSkillIds)
+    return tokenRecord.tokenEnabledSkillIds.filter((skillId) => allowed.has(skillId))
   }
 
-  return tokenRecord.profile_enabled_skill_ids
+  return tokenRecord.profileEnabledSkillIds
 }
 
 function tokenError(verification: PublicationTokenVerificationResult | null) {

@@ -38,8 +38,8 @@ async function main() {
     tokenId: tokenRecord.id || randomUUID(),
     label: tokenRecord.label,
     scopes: tokenRecord.scopes,
-    issuedAt: tokenRecord.issued_at,
-    expiresAt: tokenRecord.expires_at,
+    issuedAt: tokenRecord.issuedAt,
+    expiresAt: tokenRecord.expiresAt,
     secret,
   })
 

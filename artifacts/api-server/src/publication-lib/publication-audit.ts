@@ -13,13 +13,13 @@ export async function recordPublicationAuditEvent(input: {
   try {
     const payload = {
       action: input.action,
-      actor_label: input.auth.label,
-      actor_type: input.auth.tokenType,
+      actorLabel: input.auth.label,
+      actorType: input.auth.tokenType,
       scopes: input.auth.scopes.includes('*') ? ['*'] : input.auth.scopes,
       route: input.route,
       method: input.method,
-      article_id: input.article?.id ?? null,
-      article_slug: input.article?.slug ?? null,
+      articleId: input.article?.id ?? null,
+      articleSlug: input.article?.slug ?? null,
       status: input.status ?? 'success',
       metadata: input.metadata ?? null,
     }

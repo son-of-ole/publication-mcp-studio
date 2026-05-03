@@ -252,7 +252,7 @@ test('auth helper verifies signed tokens, registry records, scopes, and touch me
   const touchedRecord = await platform.tokenStore.getTokenRecord(tokenRecord.id)
 
   assert.equal(auth.tokenId, tokenRecord.id)
-  assert.equal(touchedRecord?.last_used_route, '/tests')
+  assert.equal(touchedRecord?.lastUsedRoute, '/tests')
   await assert.rejects(
     () => authenticatePublicationRequest({
       headers: new Headers({ authorization: `Bearer ${issued.token}` }),
@@ -274,13 +274,13 @@ test('reference HTTP handlers expose filtered articles with total counts', async
     id: 'http-article',
     title: 'HTTP Handler Article',
     slug: 'http-handler-article',
-    content_markdown: '# HTTP Handler Article',
+    contentMarkdown: '# HTTP Handler Article',
     metadata: {},
     category: 'science',
     tags: ['sdk'],
     status: 'published',
-    created_at: now,
-    updated_at: now,
+    createdAt: now,
+    updatedAt: now,
   })
 
   const handler = createPublicationFetchHandler({

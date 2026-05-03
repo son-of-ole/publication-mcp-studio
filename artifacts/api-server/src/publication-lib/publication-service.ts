@@ -73,8 +73,8 @@ export function normalizePublicationArticleMutationInput(raw: unknown): Publicat
   const contentMarkdownValue =
     typeof input.contentMarkdown === 'string'
       ? input.contentMarkdown
-      : typeof input.content_markdown === 'string'
-        ? input.content_markdown
+      : typeof (input as { content_markdown?: unknown }).content_markdown === 'string'
+        ? (input as { content_markdown: string }).content_markdown
         : undefined
   const customFrontmatterValue =
     input.customFrontmatter && typeof input.customFrontmatter === 'object'
@@ -206,11 +206,11 @@ export async function assertPublicationApiAuth(
       throw new PublicationApiError(401, 'token_not_registered', 'This publication token is not registered.')
     }
 
-    if (tokenRecord.revoked_at) {
+    if (tokenRecord.revokedAt) {
       throw new PublicationApiError(401, 'token_revoked', 'This publication token has been revoked.')
     }
 
-    if (new Date(tokenRecord.expires_at).getTime() <= Date.now()) {
+    if (new Date(tokenRecord.expiresAt).getTime() <= Date.now()) {
       throw new PublicationApiError(401, 'token_expired', 'This publication token has expired.')
     }
 
@@ -256,22 +256,22 @@ export function serializePublicationArticle(
   article: PublicationArticleRecord,
   options: { includeContent?: boolean } = {}
 ): PublicationArticleResponse {
-  const document = extractPublicationDocument(article.content_markdown, article.title)
-  const presentation = getPublicationPresentation(article.title, article.content_markdown, article.created_at)
+  const document = extractPublicationDocument(article.contentMarkdown, article.title)
+  const presentation = getPublicationPresentation(article.title, article.contentMarkdown, article.createdAt)
 
   return {
     id: article.id,
     title: article.title,
     slug: article.slug,
     status: article.status,
-    createdAt: article.created_at,
-    updatedAt: article.updated_at,
+    createdAt: article.createdAt,
+    updatedAt: article.updatedAt,
     category: typeof document.metadata.publicationLabel === 'string' && document.metadata.publicationLabel.trim()
       ? document.metadata.publicationLabel.trim()
       : null,
     tags: Array.isArray(document.metadata.tags) ? document.metadata.tags : [],
     metadata: { ...document.customFrontmatter },
-    contentMarkdown: options.includeContent === false ? undefined : article.content_markdown,
+    contentMarkdown: options.includeContent === false ? undefined : article.contentMarkdown,
     document,
     presentation,
   }
@@ -296,7 +296,7 @@ export async function listPublicationArticles(options: PublicationListOptions = 
     total,
     pageSize: articles.length,
     count: total,
-    nextCursor: articles.length > 0 ? articles[articles.length - 1]?.created_at : undefined,
+    nextCursor: articles.length > 0 ? articles[articles.length - 1]?.createdAt : undefined,
   }
 }
 
@@ -315,10 +315,13 @@ export async function createPublicationArticle(input: PublicationArticleMutation
     id: crypto.randomUUID(),
     title: articleTitle,
     slug,
-    content_markdown: contentMarkdown,
+    contentMarkdown,
+    metadata: {},
+    category: null,
+    tags: [],
     status: input.status ?? 'draft',
-    created_at: now,
-    updated_at: now,
+    createdAt: now,
+    updatedAt: now,
   }
 
   const createdArticle = await getPublicationPlatform().publicationStore.createArticle(payload)
@@ -341,12 +344,12 @@ export async function updatePublicationArticle(
   const nextTitle = deriveArticleTitle(existingArticle, input)
   const contentMarkdown = composeMarkdownForMutation(existingArticle, input, nextTitle)
 
-  const payload = {
+  const payload: Partial<PublicationArticleRecord> = {
     title: nextTitle,
     slug: normalizeRequestedSlug(input.slug, nextTitle, existingArticle.slug),
-    content_markdown: contentMarkdown,
+    contentMarkdown,
     status: input.status ?? existingArticle.status,
-    updated_at: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
 
   const updatedArticle = await getPublicationPlatform().publicationStore.updateArticle(existingArticle.id, payload)
@@ -362,7 +365,7 @@ export async function updatePublicationArticle(
 
 export async function publishPublicationArticle(identifier: string, actor?: PublicationAuthContext) {
   const existingArticle = await findPublicationArticle(identifier)
-  const existingDocument = extractPublicationDocument(existingArticle.content_markdown, existingArticle.title)
+  const existingDocument = extractPublicationDocument(existingArticle.contentMarkdown, existingArticle.title)
   const nextMetadata = {
     ...existingDocument.metadata,
     published: existingDocument.metadata.published || new Date().toISOString().slice(0, 10),
@@ -480,7 +483,7 @@ function composeMarkdownForMutation(
   }
 
   const existingDocument = existingArticle
-    ? extractPublicationDocument(existingArticle.content_markdown, existingArticle.title)
+    ? extractPublicationDocument(existingArticle.contentMarkdown, existingArticle.title)
     : {
         metadata: createEmptyPublicationMetadata(title),
         customFrontmatter: {} as PublicationFrontmatter,

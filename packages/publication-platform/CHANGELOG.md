@@ -2,6 +2,16 @@
 
 ## 0.3.1
 
+- **Issue #3 fix:** all public types and adapter contracts are now consistently
+  camelCase (`contentMarkdown`, `createdAt`, `updatedAt`, `articleId`,
+  `articleSlug`, `versionNumber`, `sourceAction`, `actorLabel`, `actorType`,
+  `tokenType`, `profileId`, `profileLabel`, `profileEnabledSkillIds`,
+  `tokenEnabledSkillIds`, `allowProfileSkillOverrides`, `issuedAt`,
+  `expiresAt`, `revokedAt`, `lastUsedAt`, `lastUsedRoute`, `lastUsedMethod`).
+  The Neon and Supabase adapters keep snake_case database columns and
+  translate to camelCase via dedicated `normalize*Row`/`*ToColumns` helpers.
+  The local adapter persists camelCase records on disk; legacy snake_case
+  state files must be removed before first boot.
 - **Critical publish fix (issue #0):** `package.json#exports` now permanently
   points at the bundled `./dist/*.js` and `./dist/*.d.ts` outputs that ship in
   the tarball. The previous 0.3.0 publish left `exports` pointing at

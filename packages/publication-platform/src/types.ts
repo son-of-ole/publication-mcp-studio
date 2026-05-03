@@ -6,13 +6,13 @@ export type PublicationArticleRecord = {
   id: string
   title: string
   slug: string
-  content_markdown: string
+  contentMarkdown: string
   metadata: Record<string, unknown>
   category: string | null
   tags: string[]
   status: PublicationArticleStatus
-  created_at: string
-  updated_at: string
+  createdAt: string
+  updatedAt: string
 }
 
 export type PublicationAuthContext = {
@@ -109,21 +109,21 @@ export type PublicationSkillProfile = {
 export type PublicationTokenInventoryRecord = {
   id: string
   label: string
-  token_type: 'signed'
+  tokenType: 'signed'
   scopes: PublicationTokenScope[]
-  profile_id: string | null
-  profile_label: string | null
-  profile_enabled_skill_ids: string[]
-  token_enabled_skill_ids: string[] | null
-  allow_profile_skill_overrides: boolean
-  issued_at: string
-  expires_at: string
-  revoked_at: string | null
-  last_used_at: string | null
-  last_used_route: string | null
-  last_used_method: string | null
-  created_at: string
-  updated_at: string
+  profileId: string | null
+  profileLabel: string | null
+  profileEnabledSkillIds: string[]
+  tokenEnabledSkillIds: string[] | null
+  allowProfileSkillOverrides: boolean
+  issuedAt: string
+  expiresAt: string
+  revokedAt: string | null
+  lastUsedAt: string | null
+  lastUsedRoute: string | null
+  lastUsedMethod: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type PublicationAuditAction =
@@ -147,31 +147,31 @@ export type PublicationAuditAction =
 export type PublicationAuditEntry = {
   id: string
   action: PublicationAuditAction
-  actor_label: string
-  actor_type: string
+  actorLabel: string
+  actorType: string
   scopes: string[]
   route: string
   method: string
-  article_id: string | null
-  article_slug: string | null
+  articleId: string | null
+  articleSlug: string | null
   status: string
   metadata: Record<string, unknown> | null
-  created_at: string
+  createdAt: string
 }
 
 export type PublicationArticleVersionRecord = {
   id: string
-  article_id: string
-  version_number: number
-  source_action: string
+  articleId: string
+  versionNumber: number
+  sourceAction: string
   title: string
   slug: string
-  content_markdown: string
+  contentMarkdown: string
   status: PublicationArticleStatus
-  actor_label: string | null
-  actor_type: string | null
+  actorLabel: string | null
+  actorType: string | null
   metadata: Record<string, unknown> | null
-  created_at: string
+  createdAt: string
 }
 
 export type PublicationMediaAsset = {
@@ -224,7 +224,7 @@ export interface PublicationStore {
 }
 
 export interface PublicationVersionStore {
-  createVersion(input: Omit<PublicationArticleVersionRecord, 'id' | 'created_at'>): Promise<PublicationArticleVersionRecord>
+  createVersion(input: Omit<PublicationArticleVersionRecord, 'id' | 'createdAt'>): Promise<PublicationArticleVersionRecord>
   listVersions(articleId: string): Promise<PublicationArticleVersionRecord[]>
   getVersion(articleId: string, versionId: string): Promise<PublicationArticleVersionRecord | null>
 }
@@ -248,7 +248,7 @@ export interface TokenStore {
 }
 
 export interface AuditStore {
-  recordEvent(input: Omit<PublicationAuditEntry, 'id' | 'created_at'>): Promise<void>
+  recordEvent(input: Omit<PublicationAuditEntry, 'id' | 'createdAt'>): Promise<void>
   listEvents(limit?: number): Promise<PublicationAuditEntry[]>
 }
 

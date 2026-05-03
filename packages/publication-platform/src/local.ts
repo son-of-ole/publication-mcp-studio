@@ -72,29 +72,29 @@ function createInitialState(seedDemoContent: boolean): LocalState {
         id: articleId,
         title: 'Portable Publication System Demo',
         slug: 'portable-publication-system-demo',
-        content_markdown: LOCAL_DEMO_ARTICLE_MARKDOWN,
+        contentMarkdown: LOCAL_DEMO_ARTICLE_MARKDOWN,
         metadata: {},
         category: 'demo',
         tags: ['demo', 'local-mode'],
         status: 'published',
-        created_at: now,
-        updated_at: now,
+        createdAt: now,
+        updatedAt: now,
       },
     ],
     versions: [
       {
         id: randomUUID(),
-        article_id: articleId,
-        version_number: 1,
-        source_action: 'seed',
+        articleId,
+        versionNumber: 1,
+        sourceAction: 'seed',
         title: 'Portable Publication System Demo',
         slug: 'portable-publication-system-demo',
-        content_markdown: LOCAL_DEMO_ARTICLE_MARKDOWN,
+        contentMarkdown: LOCAL_DEMO_ARTICLE_MARKDOWN,
         status: 'published',
-        actor_label: 'Local Platform Seed',
-        actor_type: 'static',
+        actorLabel: 'Local Platform Seed',
+        actorType: 'static',
         metadata: { source: 'local-seed' },
-        created_at: now,
+        createdAt: now,
       },
     ],
     tokens: [],
@@ -111,8 +111,8 @@ function isUuid(identifier: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identifier)
 }
 
-function compareByCreatedAtDesc(left: { created_at: string }, right: { created_at: string }) {
-  return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+function compareByCreatedAtDesc(left: { createdAt: string }, right: { createdAt: string }) {
+  return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
 }
 
 function filterArticles(
@@ -143,7 +143,7 @@ function filterArticles(
       }
     }
 
-    if (cursorTime && new Date(article.created_at).getTime() >= cursorTime) {
+    if (cursorTime && new Date(article.createdAt).getTime() >= cursorTime) {
       return false
     }
 
@@ -311,7 +311,7 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
         const record: PublicationArticleVersionRecord = {
           ...input,
           id: randomUUID(),
-          created_at: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
         }
         state.versions.unshift(record)
         return record
@@ -321,13 +321,13 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
     async listVersions(articleId: string) {
       const state = await ensureLocalState()
       return state.versions
-        .filter((entry) => entry.article_id === articleId)
-        .sort((left, right) => right.version_number - left.version_number)
+        .filter((entry) => entry.articleId === articleId)
+        .sort((left, right) => right.versionNumber - left.versionNumber)
     },
 
     async getVersion(articleId: string, versionId: string) {
       const state = await ensureLocalState()
-      return state.versions.find((entry) => entry.article_id === articleId && entry.id === versionId) ?? null
+      return state.versions.find((entry) => entry.articleId === articleId && entry.id === versionId) ?? null
     },
   }
 
@@ -338,21 +338,21 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
         const record: PublicationTokenInventoryRecord = {
           id: randomUUID(),
           label: input.label,
-          token_type: 'signed',
+          tokenType: 'signed',
           scopes: input.scopes,
-          profile_id: input.profileId ?? null,
-          profile_label: input.profileLabel ?? null,
-          profile_enabled_skill_ids: input.profileEnabledSkillIds ?? [],
-          token_enabled_skill_ids: input.tokenEnabledSkillIds ?? null,
-          allow_profile_skill_overrides: input.allowProfileSkillOverrides ?? false,
-          issued_at: input.issuedAt,
-          expires_at: input.expiresAt,
-          revoked_at: null,
-          last_used_at: null,
-          last_used_route: null,
-          last_used_method: null,
-          created_at: now,
-          updated_at: now,
+          profileId: input.profileId ?? null,
+          profileLabel: input.profileLabel ?? null,
+          profileEnabledSkillIds: input.profileEnabledSkillIds ?? [],
+          tokenEnabledSkillIds: input.tokenEnabledSkillIds ?? null,
+          allowProfileSkillOverrides: input.allowProfileSkillOverrides ?? false,
+          issuedAt: input.issuedAt,
+          expiresAt: input.expiresAt,
+          revokedAt: null,
+          lastUsedAt: null,
+          lastUsedRoute: null,
+          lastUsedMethod: null,
+          createdAt: now,
+          updatedAt: now,
         }
         state.tokens.unshift(record)
         return record
@@ -377,8 +377,8 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
         }
 
         const now = new Date().toISOString()
-        record.revoked_at = now
-        record.updated_at = now
+        record.revokedAt = now
+        record.updatedAt = now
         return record
       })
     },
@@ -391,10 +391,10 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
         }
 
         const now = new Date().toISOString()
-        record.last_used_at = now
-        record.last_used_route = route
-        record.last_used_method = method
-        record.updated_at = now
+        record.lastUsedAt = now
+        record.lastUsedRoute = route
+        record.lastUsedMethod = method
+        record.updatedAt = now
       })
     },
   }
@@ -405,7 +405,7 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
         state.audit.unshift({
           ...input,
           id: randomUUID(),
-          created_at: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
         })
       })
     },

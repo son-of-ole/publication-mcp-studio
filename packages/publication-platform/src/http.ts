@@ -72,8 +72,8 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
             label: tokenRecord.label,
             scopes: tokenRecord.scopes,
             secret,
-            issuedAt: tokenRecord.issued_at,
-            expiresAt: tokenRecord.expires_at,
+            issuedAt: tokenRecord.issuedAt,
+            expiresAt: tokenRecord.expiresAt,
           }),
         }, 201)
       }
@@ -108,7 +108,7 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
           tag: url.searchParams.get('tag') ?? undefined,
           tags: parseTags(url.searchParams),
         }) ?? articles.length
-        const nextCursor = articles.length > 0 ? articles[articles.length - 1]?.created_at : undefined
+        const nextCursor = articles.length > 0 ? articles[articles.length - 1]?.createdAt : undefined
         return json({ articles, count: total, total, pageSize: articles.length, nextCursor })
       }
 
@@ -120,17 +120,21 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
           id: typeof body.id === 'string' ? body.id : randomUUID(),
           title: requireString(body.title, 'title'),
           slug: requireString(body.slug, 'slug'),
-          content_markdown: typeof body.content_markdown === 'string'
-            ? body.content_markdown
-            : typeof body.contentMarkdown === 'string'
-              ? body.contentMarkdown
+          contentMarkdown: typeof body.contentMarkdown === 'string'
+            ? body.contentMarkdown
+            : typeof body.content_markdown === 'string'
+              ? body.content_markdown
               : '',
           metadata: isRecord(body.metadata) ? body.metadata : {},
           category: normalizeCategory(body),
           tags: normalizeTags(body),
           status: body.status === 'published' ? 'published' : 'draft',
-          created_at: typeof body.created_at === 'string' ? body.created_at : now,
-          updated_at: typeof body.updated_at === 'string' ? body.updated_at : now,
+          createdAt: typeof body.createdAt === 'string'
+            ? body.createdAt
+            : typeof body.created_at === 'string' ? body.created_at : now,
+          updatedAt: typeof body.updatedAt === 'string'
+            ? body.updatedAt
+            : typeof body.updated_at === 'string' ? body.updated_at : now,
         }
         return json({ article: await options.platform.publicationStore.createArticle(article) }, 201)
       }
@@ -146,7 +150,7 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
         return json({
           article: await options.platform.publicationStore.updateArticle(existing.id, {
             status: articleActionMatch[2] === 'publish' ? 'published' : 'draft',
-            updated_at: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           }),
         })
       }
@@ -172,16 +176,16 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
         const updates: Partial<PublicationArticleRecord> = {
           title: typeof body.title === 'string' ? body.title : existing.title,
           slug: typeof body.slug === 'string' ? body.slug : existing.slug,
-          content_markdown: typeof body.content_markdown === 'string'
-            ? body.content_markdown
-            : typeof body.contentMarkdown === 'string'
-              ? body.contentMarkdown
-              : existing.content_markdown,
+          contentMarkdown: typeof body.contentMarkdown === 'string'
+            ? body.contentMarkdown
+            : typeof body.content_markdown === 'string'
+              ? body.content_markdown
+              : existing.contentMarkdown,
           metadata: isRecord(body.metadata) ? body.metadata : existing.metadata,
           category: normalizeCategory(body, existing.category),
           tags: normalizeTags(body, existing.tags),
           status: body.status === 'published' || body.status === 'draft' ? body.status : existing.status,
-          updated_at: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         }
         return json({ article: await options.platform.publicationStore.updateArticle(existing.id, updates) })
       }

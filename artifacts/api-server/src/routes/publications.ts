@@ -179,7 +179,7 @@ router.post('/publications/admin/login', async (req, res) => {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
     const scopes: PublicationTokenScope[] = ['mcp:connect', 'articles:read', 'articles:write', 'articles:publish', 'articles:delete', 'agent:generate', 'audit:read']
     const tokenRecord = await createPublicationTokenInventoryRecord({ label: `Admin token for ${user.email ?? 'Publication admin'}`, scopes, issuedAt, expiresAt })
-    const token = issuePublicationAccessToken({ tokenId: tokenRecord.id, label: tokenRecord.label, issuedAt: tokenRecord.issued_at, expiresAt: tokenRecord.expires_at, scopes: tokenRecord.scopes })
+    const token = issuePublicationAccessToken({ tokenId: tokenRecord.id, label: tokenRecord.label, issuedAt: tokenRecord.issuedAt, expiresAt: tokenRecord.expiresAt, scopes: tokenRecord.scopes })
 
     await recordPublicationAuditEvent({
       action: 'tokens.issue',
@@ -209,7 +209,7 @@ router.get('/admin/articles-list', async (req, res) => {
     await assertPublicationAdminSession('list admin articles')
     const articles = await platform.publicationStore.listArticles({ status: 'all', limit: 200 })
     res.json({ articles: articles.map((a) => ({
-      id: a.id, title: a.title, slug: a.slug, status: a.status, createdAt: a.created_at,
+      id: a.id, title: a.title, slug: a.slug, status: a.status, createdAt: a.createdAt,
     })) })
   } catch (error) {
     handleError(res, error)
@@ -225,8 +225,8 @@ router.get('/admin/articles-list/:id', async (req, res) => {
     if (!article) return res.status(404).json({ error: 'Article not found', code: 'article_not_found' })
     return res.json({ article: {
       id: article.id, title: article.title, slug: article.slug,
-      content_markdown: article.content_markdown, status: article.status,
-      created_at: article.created_at, updated_at: article.updated_at,
+      contentMarkdown: article.contentMarkdown, status: article.status,
+      createdAt: article.createdAt, updatedAt: article.updatedAt,
     }})
   } catch (error) {
     return handleError(res, error)
@@ -775,8 +775,8 @@ router.post('/publications/tokens', async (req, res) => {
     const token = issuePublicationAccessToken({
       tokenId: tokenRecord.id,
       label: tokenRecord.label,
-      issuedAt: tokenRecord.issued_at,
-      expiresAt: tokenRecord.expires_at,
+      issuedAt: tokenRecord.issuedAt,
+      expiresAt: tokenRecord.expiresAt,
       scopes: tokenRecord.scopes,
     })
 

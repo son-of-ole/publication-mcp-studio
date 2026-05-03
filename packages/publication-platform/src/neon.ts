@@ -387,30 +387,30 @@ function normalizeArticleRow(row: Record<string, unknown>): PublicationArticleRe
     id: String(row.id),
     title: String(row.title),
     slug: String(row.slug),
-    content_markdown: String(row.content_markdown ?? ''),
+    contentMarkdown: String(row.content_markdown ?? ''),
     metadata: parseJsonObject(row.metadata_json),
     category: row.category ? String(row.category) : null,
     tags: parseJsonArray(row.tags_json),
     status: row.status === 'published' ? 'published' : 'draft',
-    created_at: normalizeTimestamp(row.created_at),
-    updated_at: normalizeTimestamp(row.updated_at),
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
   }
 }
 
 function normalizeVersionRow(row: Record<string, unknown>): PublicationArticleVersionRecord {
   return {
     id: String(row.id),
-    article_id: String(row.article_id),
-    version_number: Number(row.version_number),
-    source_action: String(row.source_action),
+    articleId: String(row.article_id),
+    versionNumber: Number(row.version_number),
+    sourceAction: String(row.source_action),
     title: String(row.title),
     slug: String(row.slug),
-    content_markdown: String(row.content_markdown ?? ''),
+    contentMarkdown: String(row.content_markdown ?? ''),
     status: row.status === 'published' ? 'published' : 'draft',
-    actor_label: row.actor_label ? String(row.actor_label) : null,
-    actor_type: row.actor_type ? String(row.actor_type) : null,
+    actorLabel: row.actor_label ? String(row.actor_label) : null,
+    actorType: row.actor_type ? String(row.actor_type) : null,
     metadata: row.metadata_json ? parseJsonObject(row.metadata_json) : null,
-    created_at: normalizeTimestamp(row.created_at),
+    createdAt: normalizeTimestamp(row.created_at),
   }
 }
 
@@ -418,23 +418,23 @@ function normalizeTokenRow(row: Record<string, unknown>): PublicationTokenInvent
   return {
     id: String(row.id),
     label: String(row.label),
-    token_type: 'signed',
+    tokenType: 'signed',
     scopes: parseJsonArray(row.scopes_json) as PublicationTokenInventoryRecord['scopes'],
-    profile_id: row.profile_id ? String(row.profile_id) : null,
-    profile_label: row.profile_label ? String(row.profile_label) : null,
-    profile_enabled_skill_ids: parseJsonArray(row.profile_enabled_skill_ids_json),
-    token_enabled_skill_ids: row.token_enabled_skill_ids_json
+    profileId: row.profile_id ? String(row.profile_id) : null,
+    profileLabel: row.profile_label ? String(row.profile_label) : null,
+    profileEnabledSkillIds: parseJsonArray(row.profile_enabled_skill_ids_json),
+    tokenEnabledSkillIds: row.token_enabled_skill_ids_json
       ? parseJsonArray(row.token_enabled_skill_ids_json)
       : null,
-    allow_profile_skill_overrides: row.allow_profile_skill_overrides === true,
-    issued_at: normalizeTimestamp(row.issued_at),
-    expires_at: normalizeTimestamp(row.expires_at),
-    revoked_at: row.revoked_at ? normalizeTimestamp(row.revoked_at) : null,
-    last_used_at: row.last_used_at ? normalizeTimestamp(row.last_used_at) : null,
-    last_used_route: row.last_used_route ? String(row.last_used_route) : null,
-    last_used_method: row.last_used_method ? String(row.last_used_method) : null,
-    created_at: normalizeTimestamp(row.created_at),
-    updated_at: normalizeTimestamp(row.updated_at),
+    allowProfileSkillOverrides: row.allow_profile_skill_overrides === true,
+    issuedAt: normalizeTimestamp(row.issued_at),
+    expiresAt: normalizeTimestamp(row.expires_at),
+    revokedAt: row.revoked_at ? normalizeTimestamp(row.revoked_at) : null,
+    lastUsedAt: row.last_used_at ? normalizeTimestamp(row.last_used_at) : null,
+    lastUsedRoute: row.last_used_route ? String(row.last_used_route) : null,
+    lastUsedMethod: row.last_used_method ? String(row.last_used_method) : null,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
   }
 }
 
@@ -442,16 +442,16 @@ function normalizeAuditRow(row: Record<string, unknown>): PublicationAuditEntry 
   return {
     id: String(row.id),
     action: row.action as PublicationAuditEntry['action'],
-    actor_label: String(row.actor_label),
-    actor_type: String(row.actor_type),
+    actorLabel: String(row.actor_label),
+    actorType: String(row.actor_type),
     scopes: parseJsonArray(row.scopes_json),
     route: String(row.route),
     method: String(row.method),
-    article_id: row.article_id ? String(row.article_id) : null,
-    article_slug: row.article_slug ? String(row.article_slug) : null,
+    articleId: row.article_id ? String(row.article_id) : null,
+    articleSlug: row.article_slug ? String(row.article_slug) : null,
     status: String(row.status),
     metadata: row.metadata_json ? parseJsonObject(row.metadata_json) : null,
-    created_at: normalizeTimestamp(row.created_at),
+    createdAt: normalizeTimestamp(row.created_at),
   }
 }
 
@@ -684,12 +684,12 @@ export function createNeonPublicationPlatform(
         input.id,
         input.title,
         input.slug,
-        input.content_markdown,
+        input.contentMarkdown,
         JSON.stringify(input.metadata ?? {}),
         input.category ?? null,
         input.status,
-        input.created_at,
-        input.updated_at,
+        input.createdAt,
+        input.updatedAt,
       ]
       const tagsSql = replaceParam('$ARRAY', uniqueTextArray(input.tags), params)
       await queryRows(
@@ -718,12 +718,12 @@ export function createNeonPublicationPlatform(
         existingArticle.id,
         nextArticle.title,
         nextArticle.slug,
-        nextArticle.content_markdown,
+        nextArticle.contentMarkdown,
         JSON.stringify(nextArticle.metadata ?? {}),
         nextArticle.category ?? null,
         nextArticle.status,
-        nextArticle.created_at,
-        nextArticle.updated_at,
+        nextArticle.createdAt,
+        nextArticle.updatedAt,
       ]
       const tagsSql = replaceParam('$ARRAY', uniqueTextArray(nextArticle.tags), params)
       await queryRows(
@@ -767,15 +767,15 @@ export function createNeonPublicationPlatform(
         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW())`,
         [
           id,
-          input.article_id,
-          input.version_number,
-          input.source_action,
+          input.articleId,
+          input.versionNumber,
+          input.sourceAction,
           input.title,
           input.slug,
-          input.content_markdown,
+          input.contentMarkdown,
           input.status,
-          input.actor_label,
-          input.actor_type,
+          input.actorLabel,
+          input.actorType,
           JSON.stringify(input.metadata ?? null),
         ]
       )
@@ -923,14 +923,14 @@ export function createNeonPublicationPlatform(
       // instead of binding `$N::uuid` against null — the Neon serverless driver
       // sends null params as `""`, which Postgres rejects with
       // `invalid input syntax for type uuid: ""`.
-      const articleId = normalizeNullableUuid(input.article_id)
+      const articleId = normalizeNullableUuid(input.articleId)
       const params: unknown[] = [
         input.action,
-        input.actor_label,
-        input.actor_type,
+        input.actorLabel,
+        input.actorType,
         input.route,
         input.method,
-        input.article_slug,
+        input.articleSlug,
         input.status,
         JSON.stringify(input.metadata ?? null),
       ]

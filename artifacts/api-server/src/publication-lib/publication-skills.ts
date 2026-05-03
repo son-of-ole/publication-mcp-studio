@@ -527,21 +527,21 @@ export function resolvePublicationAuthSkillAccess(
   }
 
   const tokenRecord = input.tokenRecord
-  const profileEnabledSkillIds = sanitizeSkillIds(tokenRecord.profile_enabled_skill_ids ?? [])
+  const profileEnabledSkillIds = sanitizeSkillIds(tokenRecord.profileEnabledSkillIds ?? [])
   const requestedTokenSkillIds =
-    tokenRecord.token_enabled_skill_ids === null
+    tokenRecord.tokenEnabledSkillIds === null
       ? null
-      : sanitizeSkillIds(tokenRecord.token_enabled_skill_ids)
+      : sanitizeSkillIds(tokenRecord.tokenEnabledSkillIds)
   const enabledSkillIds =
     requestedTokenSkillIds === null
       ? profileEnabledSkillIds
-      : tokenRecord.allow_profile_skill_overrides
+      : tokenRecord.allowProfileSkillOverrides
         ? requestedTokenSkillIds
         : requestedTokenSkillIds.filter((skillId) => profileEnabledSkillIds.includes(skillId))
 
   return {
-    profileId: tokenRecord.profile_id,
-    profileLabel: tokenRecord.profile_label,
+    profileId: tokenRecord.profileId,
+    profileLabel: tokenRecord.profileLabel,
     enabledSkillIds,
     adminVisibility: false,
   }

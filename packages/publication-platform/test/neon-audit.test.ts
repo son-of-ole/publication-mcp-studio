@@ -21,13 +21,13 @@ test('Neon recordEvent inlines NULL for null article_id (issue #2 regression)', 
 
   await platform.auditStore.recordEvent({
     action: 'test.smoke',
-    actor_label: 'sdk-test',
-    actor_type: 'system',
+    actorLabel: 'sdk-test',
+    actorType: 'system',
     scopes: [],
     route: '/x',
     method: 'GET',
-    article_id: null,
-    article_slug: null,
+    articleId: null,
+    articleSlug: null,
     status: 'ok',
     metadata: {},
   })
@@ -51,13 +51,13 @@ test('Neon recordEvent binds $N::uuid for a real article_id', async () => {
 
   await platform.auditStore.recordEvent({
     action: 'test.smoke',
-    actor_label: 'sdk-test',
-    actor_type: 'system',
+    actorLabel: 'sdk-test',
+    actorType: 'system',
     scopes: [],
     route: '/x',
     method: 'GET',
-    article_id: realUuid,
-    article_slug: 'something',
+    articleId: realUuid,
+    articleSlug: 'something',
     status: 'ok',
     metadata: {},
   })
