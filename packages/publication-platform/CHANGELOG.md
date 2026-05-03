@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.2
+
+- **Issue #3 finalized:** `PublicationTokenInventoryRecord` is now fully
+  camelCase (`issuedAt`, `expiresAt`, `revokedAt`, `lastUsedAt`,
+  `lastUsedRoute`, `lastUsedMethod`, `tokenType`, `profileId`,
+  `profileLabel`, `profileEnabledSkillIds`, `tokenEnabledSkillIds`,
+  `allowProfileSkillOverrides`). Hosts no longer need a separate
+  `tokenInventoryToResponse` mapping helper — the record returned by
+  `tokenStore.listTokens()` matches the wire format.
+- **Issue #5 finalized:** `createPublicationClient` constructor JSDoc
+  now documents the `origin` / `pathPrefix` / legacy `baseUrl` semantics
+  inline. `baseUrl` continues to accept either an origin or a full
+  publication API base path; `origin` is the preferred v0.3 option.
+- **Workaround retirement guidance:** with 0.3.2 installed, hosts can
+  remove (a) the `safeGetArticleByIdentifier` wrapper, (b) the
+  hard-coded `PUBLICATION_SCOPES` array (import the export instead),
+  and (c) the `try/catch` around `auditStore.recordEvent` for
+  non-article events.
+
 ## 0.3.1
 
 - **Issue #3 fix:** all public types and adapter contracts are now consistently

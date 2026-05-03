@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2
+
+- Coordinated release with `@publication-mcp-studio/platform@0.3.2`.
+- Constructor JSDoc clarifies `origin` / `pathPrefix` / legacy `baseUrl`
+  semantics. `origin` is the preferred option; `baseUrl` may be an
+  origin or a full publication API base path.
+- `PublicationTokenRecord` aligned with the platform's now-fully
+  camelCase `PublicationTokenInventoryRecord`. The defensive
+  snake_case fallbacks in `normalizeTokenRecord` remain in place for
+  one more minor version to absorb older server responses during the
+  upgrade window.
+
 ## 0.3.1
 
 - **Issue #5 fix:** `createPublicationClient` now accepts both `baseUrl`

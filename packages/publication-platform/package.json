@@ -1,6 +1,6 @@
 {
   "name": "@publication-mcp-studio/platform",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "description": "Stack-agnostic publication platform adapters and contracts for Publication MCP Studio integrations.",
   "license": "MIT",

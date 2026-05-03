@@ -53,6 +53,19 @@ article.article.metadata.imageUrl
 
 `defineArticleMetadataSchema(schema)` is exported as a tiny helper for hosts that want to keep a runtime schema object beside the generic type.
 
+## v0.3.2 Notes
+
+- Coordinated with `@publication-mcp-studio/platform@0.3.2`.
+- `origin` is the preferred constructor option. `baseUrl` is still
+  accepted and may be either an origin (e.g. `https://example.com`)
+  or a full publication API base path
+  (e.g. `https://example.com/api/publications`).
+- All token records are now fully camelCase (`issuedAt`, `expiresAt`,
+  `revokedAt`, `lastUsedAt`, `lastUsedRoute`, `lastUsedMethod`,
+  `tokenType`, `profileId`, `profileLabel`,
+  `profileEnabledSkillIds`, `tokenEnabledSkillIds`,
+  `allowProfileSkillOverrides`).
+
 ## v0.3.0 Additions
 
 - Category/tag filters plus offset and cursor pagination.

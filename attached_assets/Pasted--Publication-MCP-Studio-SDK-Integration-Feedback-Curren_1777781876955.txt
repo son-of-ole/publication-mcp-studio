@@ -1,0 +1,129 @@
+# Publication MCP Studio SDK — Integration Feedback
+
+**Currently in use:** `@publication-mcp-studio/platform@0.3.1`,
+`@publication-mcp-studio/client@0.2.0`.
+
+**Verified end-to-end on:** May 3, 2026 against the Cedar Branch
+api-server (Neon adapter) and the `/blog` page.
+
+---
+
+## ✅ 0.3.1 status — all blocking issues resolved
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| 0 | `platform@0.3.0` published with `exports` map pointing at `./src/*.ts` (not shipped) | ✅ **FIXED in 0.3.1** | Tarball now ships `dist/*.js`, `main`/`types`/`exports` all point at `./dist/*`. Verified by clean `pnpm install` + import. |
+| 1 | `adminAuthStore` option ignored by Neon factory | ✅ Fixed (0.3.0) | `createNeonPublicationPlatform({ adminAuthStore })` honors the override. |
+| 2 | `auditStore.recordEvent` bound `""` for null UUIDs (Neon adapter) | ✅ **FIXED in 0.3.1** | Direct call with `articleId: null` now succeeds against Neon — no more `invalid input syntax for type uuid: ""`. We can drop the `try/catch` wrapper at non-article audit-event call sites. |
+| 4 | No REST contract docs | ✅ Per changelog | Not independently re-verified. |
+| 6 | No exported scope const | ✅ Fixed (0.3.0) | `PUBLICATION_SCOPES` exported. |
+| 7 | No `metadata` schema convention docs | ✅ Per changelog | Not independently re-verified. |
+| 8 | Neon `getArticleByIdentifier` empty-result crash | ✅ Fixed (0.3.0) | Returns `null` cleanly. The `safeGetArticleByIdentifier` wrapper in `routes/publications.ts` is now redundant. |
+
+---
+
+## ⚠️ Open / minor
+
+### Issue #3 — Mixed snake_case / camelCase response casing (partial)
+
+**Severity:** low.
+
+The 0.3.0 release moved `PublicationArticleRecord` and
+`PublicationArticleVersionRecord` to **full camelCase** (`contentMarkdown`,
+`createdAt`, `updatedAt`, `articleId`, `versionNumber`, `sourceAction`,
+`actorLabel`, `actorType`, …). `AuditStore.recordEvent` and `TokenStore.createTokenRecord`
+inputs are camelCase too. **However**, `PublicationTokenInventoryRecord`
+is still snake_case (`revoked_at`, `expires_at`, `created_at`,
+`last_used_at`, …), so the boundary is no longer "platform vs. client" —
+it's "tokens vs. everything else."
+
+We continue to maintain `tokenInventoryToResponse` separately because
+of this. Standardizing tokens on camelCase in a future release would
+let us drop that mapping helper.
+
+### Issue #5 — `PublicationClient({ baseUrl })` semantics
+
+**Severity:** low. Not addressed.
+
+`baseUrl` is the **origin**; the SDK hardcodes the
+`/api/publications/...` prefix. Renaming to `origin` (or documenting
+the hardcoded-prefix expectation in the constructor JSDoc) would
+prevent the double-prefix footgun.
+
+### `client@0.3.0+` not yet published
+
+**Severity:** informational.
+
+`platform` is at `0.3.1`; `client` is still at `0.2.0`. The
+camelCase change to `PublicationArticleRecord` is server-side and
+doesn't affect the client wire format (we map via `articleToResponse`),
+so the version skew is safe — but a coordinated `client@0.3.x` release
+would tidy things up.
+
+---
+
+## 🚧 0.3.x is a breaking change for consumers (heads-up)
+
+The casing flip on `PublicationArticleRecord` (and friends) is a
+**breaking** API change for any code that reads/writes the platform
+records directly. In our api-server it touched ~30 sites across
+3 files (`publication-bootstrap.ts`, `publication-seed.ts`,
+`routes/publications.ts`):
+
+```
+content_markdown → contentMarkdown
+created_at       → createdAt
+updated_at       → updatedAt
+version_number   → versionNumber
+source_action    → sourceAction
+article_id       → articleId
+article_slug     → articleSlug
+actor_label      → actorLabel
+actor_type       → actorType
+issued_at        → issuedAt   (token create input)
+expires_at       → expiresAt  (token create input)
+```
+
+Recommendation for the SDK developer: call this out prominently in
+the 0.3.0 changelog ("BREAKING: PublicationArticleRecord and
+PublicationArticleVersionRecord field casing changed from snake_case
+to camelCase. AuditStore.recordEvent and TokenStore.createTokenRecord
+inputs are camelCase too."), and consider providing a one-line
+codemod or a tagged-union deprecation to ease migration.
+
+---
+
+## ✨ Bonus 0.3.x features we now consume / could consume
+
+- `platform.ensureSchema()` — idempotent migration from the platform
+  object itself. We could drop the explicit
+  `migrateNeonPublicationPlatform` import in `publication-bootstrap.ts`.
+- `createPublicationExpressHandler` — drop-in Express handler. Once
+  we adopt this, `routes/publications.ts` (~1200 lines of glue) can
+  shrink dramatically.
+- `createPublicationNextRouteHandlers` — same for Next.js consumers.
+- New first-class `category: string | null` and `tags: string[]`
+  fields on articles, with SQL indexes, list filters
+  (`category`, `tag`, `tags[]`), `offset`/`cursor` pagination, and
+  `countArticles()`. We're currently still reading category from
+  `metadata.category` for backward-compat; a future cleanup pass
+  should prefer the top-level field.
+- `publication-mcp issue-token` CLI for the first-token bootstrap
+  problem we solved manually with the admin-login route.
+
+---
+
+## 📋 Net recommendation
+
+`platform@0.3.1` is **adoption-ready**. We've upgraded, migrated all
+field casing, and verified the full surface end-to-end (admin login,
+list, create, PATCH, publish, unpublish, delete, public 404, token
+issue/revoke, audit recording with null `articleId`). Three previous
+workarounds in `src/` are now removable in a follow-up cleanup pass:
+
+1. `safeGetArticleByIdentifier` wrapper in `routes/publications.ts`
+   (issue #8 fix landed in 0.3.0).
+2. The hard-coded `PUBLICATION_SCOPES` array in
+   `routes/publications.ts` (issue #6 fix — can `import` instead).
+3. The `try/catch` around `auditStore.recordEvent` for
+   non-article events (issue #2 fix landed in 0.3.1).

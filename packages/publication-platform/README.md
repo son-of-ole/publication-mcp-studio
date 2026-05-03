@@ -70,6 +70,17 @@ Selection helpers:
 - `PUBLICATION_ADMIN_EMAIL`
 - `PUBLICATION_ADMIN_PASSWORD`
 
+## v0.3.2 Notes
+
+- `PublicationTokenInventoryRecord` is fully camelCase, matching the rest
+  of the public surface. Hosts no longer need a separate
+  `tokenInventoryToResponse` mapping helper — the record returned by
+  `tokenStore.listTokens()` matches the wire format.
+- With 0.3.2 installed, the three legacy host-side workarounds can be
+  retired: the `safeGetArticleByIdentifier` wrapper, the hard-coded
+  `PUBLICATION_SCOPES` array (import the export instead), and the
+  `try/catch` around `auditStore.recordEvent` for non-article events.
+
 ## v0.3.0 Additions
 
 - `platform.ensureSchema()` for first-run boot checks.
