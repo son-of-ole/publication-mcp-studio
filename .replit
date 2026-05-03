@@ -34,3 +34,5 @@ externalPort = 3000
 [userenv]
 
 [userenv.shared]
+PUBLICATION_ADMIN_EMAIL = "admin@example.com"
+PUBLICATION_ADMIN_PASSWORD = "demo-admin-password"
