@@ -266,9 +266,11 @@ export function serializePublicationArticle(
     status: article.status,
     createdAt: article.created_at,
     updatedAt: article.updated_at,
-    category: article.category ?? null,
-    tags: Array.isArray(article.tags) ? article.tags : [],
-    metadata: article.metadata ?? {},
+    category: typeof document.metadata.publicationLabel === 'string' && document.metadata.publicationLabel.trim()
+      ? document.metadata.publicationLabel.trim()
+      : null,
+    tags: Array.isArray(document.metadata.tags) ? document.metadata.tags : [],
+    metadata: { ...document.customFrontmatter },
     contentMarkdown: options.includeContent === false ? undefined : article.content_markdown,
     document,
     presentation,
@@ -280,21 +282,10 @@ export async function listPublicationArticles(options: PublicationListOptions = 
   const articles = await platform.publicationStore.listArticles({
     status: options.status,
     search: options.search,
-    category: options.category,
-    tag: options.tag,
-    tags: options.tags,
     limit: clampLimit(options.limit),
-    offset: options.offset,
-    cursor: options.cursor,
   })
 
-  const total = await platform.publicationStore.countArticles?.({
-    status: options.status,
-    search: options.search,
-    category: options.category,
-    tag: options.tag,
-    tags: options.tags,
-  }) ?? articles.length
+  const total = articles.length
 
   return {
     articles: articles.map((article) =>
@@ -325,9 +316,6 @@ export async function createPublicationArticle(input: PublicationArticleMutation
     title: articleTitle,
     slug,
     content_markdown: contentMarkdown,
-    metadata: input.customFrontmatter ?? {},
-    category: deriveArticleCategory(input),
-    tags: deriveArticleTags(input),
     status: input.status ?? 'draft',
     created_at: now,
     updated_at: now,
@@ -357,9 +345,6 @@ export async function updatePublicationArticle(
     title: nextTitle,
     slug: normalizeRequestedSlug(input.slug, nextTitle, existingArticle.slug),
     content_markdown: contentMarkdown,
-    metadata: input.customFrontmatter ?? existingArticle.metadata ?? {},
-    category: input.category !== undefined ? normalizeNullableString(input.category) : existingArticle.category ?? null,
-    tags: input.tags ? normalizeStringArray(input.tags) : existingArticle.tags ?? [],
     status: input.status ?? existingArticle.status,
     updated_at: new Date().toISOString(),
   }
