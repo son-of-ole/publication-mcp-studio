@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.1
+
+- **Critical publish fix (issue #0):** `package.json#exports` now permanently
+  points at the bundled `./dist/*.js` and `./dist/*.d.ts` outputs that ship in
+  the tarball. The previous 0.3.0 publish left `exports` pointing at
+  `./src/*.ts` files that were excluded by the `files` field, so any consumer
+  who installed `@publication-mcp-studio/platform@0.3.0` got
+  `ERR_MODULE_NOT_FOUND` on first import. (`publishConfig.exports` is not
+  honored by npm, so the override approach used in 0.3.0 silently failed.)
+- Added `scripts/verify-tarball.mjs`, run from `prepublishOnly`, that fails the
+  publish if any `main` / `types` / `bin` / `exports` target is missing on disk
+  or sits outside the `files` allowlist. This makes a future repeat of issue #0
+  impossible.
+- Added a `dev` script (`tsup ... --watch`) for iterating on the SDK against a
+  live consumer.
+- **Issue #2 fix:** the Neon adapter's `auditStore.recordEvent` now inlines
+  `NULL` into the SQL when `article_id` is null/missing/non-uuid instead of
+  binding `$N::uuid` against a null value. The Neon serverless driver was
+  serializing those nulls as the empty string, which Postgres rejected with
+  `invalid input syntax for type uuid: ""`. Added a regression unit test
+  asserting that a `null` `article_id` produces a `NULL` parameter.
+
 ## 0.3.0
 
 - Added `platform.ensureSchema()` and wired the Neon adapter to run the idempotent migration from the platform object.

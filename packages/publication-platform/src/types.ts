@@ -295,6 +295,12 @@ export type SupabasePublicationPlatformOptions = {
 export type NeonPublicationPlatformOptions = LocalPublicationPlatformOptions & {
   databaseUrl?: string
   mediaStorage?: import('./media-storage').PublicationMediaStorageOptions
+  /**
+   * Optional pre-built Neon SQL client. When provided, the platform will use it
+   * directly instead of constructing one from `databaseUrl`. Useful for tests
+   * (inject a fake) and for consumers that want to share a connection.
+   */
+  sql?: unknown
 }
 
 export type PublicationTokenSecretProvider = {

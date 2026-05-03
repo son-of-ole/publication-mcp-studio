@@ -1,0 +1,203 @@
+# Publication MCP Studio SDK — Integration Feedback
+
+**Currently in use:** `@publication-mcp-studio/platform@0.2.0`,
+`@publication-mcp-studio/client@0.2.0`.
+
+**Latest published:** `platform@0.3.0` (broken — see issue #0 below),
+`client@0.2.0`.
+
+---
+
+## 🚨 Issue #0 — `platform@0.3.0` published with broken `exports` map
+
+**Severity:** CRITICAL. Blocks adoption of 0.3.0 entirely.
+
+The 0.3.0 tarball ships only `dist/`, `migrations/`, `README.md`, and
+`CHANGELOG.md` (per the `files` field in package.json), but the
+`exports` map points every entry at `./src/*.ts` files that are not
+included in the package:
+
+```json
+"files": ["dist","migrations","README.md","CHANGELOG.md"],
+"main": "./src/index.ts",
+"types": "./src/index.ts",
+"exports": {
+  ".": "./src/index.ts",
+  "./neon": "./src/neon.ts",
+  ...
+}
+```
+
+Result: any consumer that runs `pnpm install @publication-mcp-studio/platform@0.3.0`
+and tries to `import` from it gets `ERR_MODULE_NOT_FOUND` — the
+`./src/...` paths simply don't exist on disk.
+
+We verified this by installing 0.3.0 cleanly; the api-server crashed
+on startup with:
+
+```
+Error [ERR_MODULE_NOT_FOUND]:
+Cannot find module '/.../node_modules/@publication-mcp-studio/platform/src/index.ts'
+imported from /.../api-server/src/lib/publication-platform.ts
+```
+
+**Workaround we used to verify the rest of 0.3.0:** manually
+rewrote `node_modules/.../platform/package.json` to point `main`,
+`types`, and `exports` at the bundled `./dist/*.js` and `./dist/*.d.ts`
+files. With that one-line publish bug worked around, **0.3.0 runs
+cleanly** and we were able to verify the remaining items below.
+
+**For now we have pinned platform back to `0.2.0`** (`"@publication-mcp-studio/platform": "0.2.0"`)
+because the 0.3.0 publish does not survive a fresh `pnpm install`.
+
+**Suggested fix for the SDK developer:** republish 0.3.0 (or a 0.3.1)
+with the `exports` map pointing to `./dist/*.js` and `./dist/*.d.ts`,
+matching what's actually shipped. A correct shape:
+
+```json
+"main": "./dist/index.js",
+"types": "./dist/index.d.ts",
+"exports": {
+  ".":          { "types": "./dist/index.d.ts",          "default": "./dist/index.js" },
+  "./neon":     { "types": "./dist/neon.d.ts",           "default": "./dist/neon.js" },
+  "./local":    { "types": "./dist/local.d.ts",          "default": "./dist/local.js" },
+  "./supabase": { "types": "./dist/supabase.d.ts",       "default": "./dist/supabase.js" },
+  ...
+}
+```
+
+A `prepublishOnly` step that runs `tsc --noEmit` against a smoke-test
+consumer would have caught this before publish.
+
+---
+
+## ✅ What 0.3.0 fixes (verified empirically with the exports patched)
+
+| Original Issue | 0.3.0 Status | Verification |
+|----------------|--------------|--------------|
+| **#1** `adminAuthStore` option ignored by Neon factory | ✅ **FIXED** | `createNeonPublicationPlatform({adminAuthStore: x}).adminAuthStore === x` returns `true`. |
+| **#6** No exported scope const | ✅ **FIXED** | `import { PUBLICATION_SCOPES } from '@publication-mcp-studio/platform'` now resolves to `["mcp:connect","articles:read","articles:write","articles:publish","articles:delete","agent:generate","audit:read","tokens:read","tokens:write"]`. |
+| **#8** Neon empty-result driver crash inside `getArticleByIdentifier` | ✅ **FIXED** | `platform.publicationStore.getArticleByIdentifier('definitely-not-a-real-slug')` now returns `null` cleanly (no `Cannot read properties of null (reading 'map')`). |
+| **#4** No REST contract docs | ✅ Per CHANGELOG | Changelog states "Updated docs for the REST contract, metadata conventions, and v0.2.0 integration feedback." (Not independently re-verified by us.) |
+| **#7** No `metadata` schema convention docs | ✅ Per CHANGELOG | Same — covered in the 0.3.0 docs update. |
+
+**Bonus 0.3.0 features we verified are exported:**
+- `platform.ensureSchema()` — idempotent migration from the platform
+  object itself (we no longer need to call `migrateNeonPublicationPlatform`
+  separately at startup).
+- `createPublicationExpressHandler` — drop-in Express handler. Once we
+  consume this, `src/routes/publications.ts` (~1200 lines of glue) can
+  shrink dramatically.
+- `createPublicationNextRouteHandlers` — same for Next.js consumers.
+- New first-class `category` and `tags` fields on articles, with SQL
+  indexes, list filters, offset/cursor pagination, and `countArticles()`.
+- `publication-mcp issue-token` CLI for the first-token bootstrap
+  problem we solved manually with the admin login route.
+
+---
+
+## ❌ What 0.3.0 does NOT fix (still real)
+
+### Issue #2 — `auditStore.recordEvent` still binds `""` for null UUIDs
+
+**Severity:** medium. Still requires a try/catch wrapper at every
+non-article audit-event call site.
+
+Reproduced against 0.3.0:
+
+```ts
+await platform.auditStore.recordEvent({
+  action: 'test.smoke',
+  actorLabel: 'sdk-test',
+  actorType: 'system',
+  scopes: [],
+  route: '/x',
+  method: 'GET',
+  articleId: null,  // ← binds as "" instead of null
+  articleSlug: null,
+  status: 'ok',
+  metadata: {},
+});
+// throws: invalid input syntax for type uuid: ""
+```
+
+The 0.3.0 changelog claims "Fixed Neon ... nullable audit UUID
+binding," but our reproduction shows `null → ""` is **still** the
+behavior in the Neon adapter for `articleId`. Either the fix was
+partial (e.g. only fixed nullable text columns), or it regressed, or
+it lives behind an option we couldn't find. Our `try/catch` workaround
+in `src/routes/publications.ts` still has to stay.
+
+**Suggested fix:** in the Neon adapter's `recordEvent`, explicitly
+coerce nullable UUID inputs (`articleId`, and any others) to SQL
+`NULL` before binding. Add a unit test that calls `recordEvent({...,
+articleId: null})` against a real Neon instance.
+
+### Issue #3 — Mixed snake_case / camelCase response casing
+
+**Severity:** low. Not addressed in 0.3.0.
+
+`PublicationArticleResponse` uses camelCase (`createdAt`,
+`updatedAt`, `contentMarkdown`).
+`PublicationTokenRecord` still uses snake_case (`revoked_at`,
+`expires_at`, `created_at`, `last_used_at`).
+
+We continue to maintain two separate mapping helpers
+(`articleToResponse` and `tokenInventoryToResponse`) because of this.
+
+**Suggested fix:** standardize on camelCase across all public response
+types in a 0.4.0 (breaking) release.
+
+### Issue #5 — `PublicationClient({ baseUrl })` semantics
+
+**Severity:** low. Not addressed in 0.3.0.
+
+`baseUrl` is the **origin** (`https://example.com`); the SDK hardcodes
+the `/api/publications/...` prefix. Passing the full base path
+double-prefixes the URL.
+
+**Suggested fix:** rename to `origin` (or document the
+hardcoded-prefix expectation prominently in the constructor JSDoc).
+
+### `client@0.3.0` not yet published
+
+**Severity:** low / informational.
+
+Only `platform@0.3.0` has been pushed to npm; `client` is still at
+`0.2.0`. The platform package's new exports (e.g. `PUBLICATION_SCOPES`,
+`createPublicationExpressHandler`) are server-side only, but if any
+new client-facing types ship later, they should also be released as
+`client@0.3.0` so the version pair stays consistent.
+
+---
+
+## 📋 Summary handoff for the SDK developer
+
+| # | Issue | Status in 0.3.0 | Action |
+|---|-------|-----------------|--------|
+| 0 | `platform@0.3.0` exports map points at non-shipped `src/*.ts` | 🚨 **Republish blocker** | Republish with exports → `dist/*.js` |
+| 1 | `adminAuthStore` option ignored | ✅ Fixed | None |
+| 2 | `recordEvent` binds `""` for null uuid | ❌ Still broken (despite changelog claim) | Coerce null uuids to SQL NULL; add a regression test |
+| 3 | Mixed snake_case / camelCase | ❌ Open | Standardize on camelCase in 0.4.0 |
+| 4 | No REST contract docs | ✅ Per changelog (not re-verified) | — |
+| 5 | `baseUrl` semantics unclear | ❌ Open | Rename or document explicitly |
+| 6 | No exported scope const | ✅ Fixed (`PUBLICATION_SCOPES`) | None |
+| 7 | No `metadata` schema convention docs | ✅ Per changelog (not re-verified) | — |
+| 8 | Neon driver empty-result crash | ✅ Fixed | None |
+
+### Net recommendation
+
+**Top priority:** republish `platform@0.3.0` (or a `0.3.1`) with the
+`exports` field pointing at `./dist/*.js`. Once that's out, we can
+upgrade and remove three workarounds from
+`artifacts/api-server/src/`:
+
+1. The `{ ...base, adminAuthStore }` spread in
+   `src/lib/publication-platform.ts` (issue #1 fix).
+2. The `safeGetArticleByIdentifier` wrapper in
+   `src/routes/publications.ts` (issue #8 fix).
+3. The hard-coded `PUBLICATION_SCOPES` array in
+   `src/routes/publications.ts` (issue #6 fix).
+
+The `try/catch` around `auditStore.recordEvent` (issue #2) should
+**stay** until we can confirm the null-uuid fix actually lands.

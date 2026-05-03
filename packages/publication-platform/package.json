@@ -1,6 +1,6 @@
 {
   "name": "@publication-mcp-studio/platform",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Stack-agnostic publication platform adapters and contracts for Publication MCP Studio integrations.",
   "license": "MIT",
@@ -26,51 +26,35 @@
     "README.md",
     "CHANGELOG.md"
   ],
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./types": "./src/types.ts",
-    "./errors": "./src/errors.ts",
-    "./auth": "./src/auth.ts",
-    "./frontmatter": "./src/frontmatter.ts",
-    "./http": "./src/http.ts",
-    "./media-storage": "./src/media-storage.ts",
-    "./token-scopes": "./src/token-scopes.ts",
-    "./local": "./src/local.ts",
-    "./neon": "./src/neon.ts",
-    "./supabase": "./src/supabase.ts",
-    "./template": "./src/template.ts",
-    "./cli": "./src/cli.ts"
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./types": { "types": "./dist/types.d.ts", "import": "./dist/types.js" },
+    "./errors": { "types": "./dist/errors.d.ts", "import": "./dist/errors.js" },
+    "./auth": { "types": "./dist/auth.d.ts", "import": "./dist/auth.js" },
+    "./frontmatter": { "types": "./dist/frontmatter.d.ts", "import": "./dist/frontmatter.js" },
+    "./http": { "types": "./dist/http.d.ts", "import": "./dist/http.js" },
+    "./media-storage": { "types": "./dist/media-storage.d.ts", "import": "./dist/media-storage.js" },
+    "./token-scopes": { "types": "./dist/token-scopes.d.ts", "import": "./dist/token-scopes.js" },
+    "./local": { "types": "./dist/local.d.ts", "import": "./dist/local.js" },
+    "./neon": { "types": "./dist/neon.d.ts", "import": "./dist/neon.js" },
+    "./supabase": { "types": "./dist/supabase.d.ts", "import": "./dist/supabase.js" },
+    "./template": { "types": "./dist/template.d.ts", "import": "./dist/template.js" },
+    "./cli": { "types": "./dist/cli.d.ts", "import": "./dist/cli.js" }
   },
   "publishConfig": {
-    "access": "public",
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-      "./types": { "types": "./dist/types.d.ts", "import": "./dist/types.js" },
-      "./errors": { "types": "./dist/errors.d.ts", "import": "./dist/errors.js" },
-      "./auth": { "types": "./dist/auth.d.ts", "import": "./dist/auth.js" },
-      "./frontmatter": { "types": "./dist/frontmatter.d.ts", "import": "./dist/frontmatter.js" },
-      "./http": { "types": "./dist/http.d.ts", "import": "./dist/http.js" },
-      "./media-storage": { "types": "./dist/media-storage.d.ts", "import": "./dist/media-storage.js" },
-      "./token-scopes": { "types": "./dist/token-scopes.d.ts", "import": "./dist/token-scopes.js" },
-      "./local": { "types": "./dist/local.d.ts", "import": "./dist/local.js" },
-      "./neon": { "types": "./dist/neon.d.ts", "import": "./dist/neon.js" },
-      "./supabase": { "types": "./dist/supabase.d.ts", "import": "./dist/supabase.js" },
-      "./template": { "types": "./dist/template.d.ts", "import": "./dist/template.js" },
-      "./cli": { "types": "./dist/cli.d.ts", "import": "./dist/cli.js" }
-    }
+    "access": "public"
   },
   "bin": {
     "publication-mcp": "dist/cli.js"
   },
   "scripts": {
     "build": "tsup src/index.ts src/local.ts src/neon.ts src/supabase.ts src/template.ts src/types.ts src/errors.ts src/auth.ts src/frontmatter.ts src/http.ts src/media-storage.ts src/token-scopes.ts src/cli.ts --format esm --dts --clean --sourcemap",
+    "dev": "tsup src/index.ts src/local.ts src/neon.ts src/supabase.ts src/template.ts src/types.ts src/errors.ts src/auth.ts src/frontmatter.ts src/http.ts src/media-storage.ts src/token-scopes.ts src/cli.ts --format esm --dts --sourcemap --watch",
     "test": "tsx --test test/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "pnpm run build && pnpm run test"
+    "prepublishOnly": "pnpm run build && pnpm run test && node scripts/verify-tarball.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",

@@ -254,6 +254,7 @@ function getNeonDatabaseUrl(options: NeonPublicationPlatformOptions = {}, env: N
 }
 
 function createNeonSql(options: NeonPublicationPlatformOptions = {}) {
+  if (options.sql) return options.sql as NeonSqlClient
   return neon(getNeonDatabaseUrl(options)) as NeonSqlClient
 }
 
@@ -918,25 +919,36 @@ export function createNeonPublicationPlatform(
 
   const auditStore: AuditStore = {
     async recordEvent(input) {
+      // Issue #2 fix: when article_id is null/empty/non-uuid, inline SQL NULL
+      // instead of binding `$N::uuid` against null — the Neon serverless driver
+      // sends null params as `""`, which Postgres rejects with
+      // `invalid input syntax for type uuid: ""`.
+      const articleId = normalizeNullableUuid(input.article_id)
       const params: unknown[] = [
         input.action,
         input.actor_label,
         input.actor_type,
         input.route,
         input.method,
-        normalizeNullableUuid(input.article_id),
         input.article_slug,
         input.status,
         JSON.stringify(input.metadata ?? null),
       ]
+      let articleIdSql: string
+      if (articleId === null) {
+        articleIdSql = 'NULL'
+      } else {
+        params.push(articleId)
+        articleIdSql = `$${params.length}::uuid`
+      }
       const scopesSql = replaceParam('$ARRAY', input.scopes, params)
 
       await queryRows(
         sql,
         `INSERT INTO publication_api_audit_log (
-          action, actor_label, actor_type, route, method, article_id, article_slug, status, metadata, scopes
+          action, actor_label, actor_type, route, method, article_slug, status, metadata, article_id, scopes
         )
-        VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, $9::jsonb, ${scopesSql})`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, ${articleIdSql}, ${scopesSql})`,
         params
       )
     },
