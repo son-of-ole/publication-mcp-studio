@@ -6,7 +6,15 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 
 ## Project Purpose
 
-This project is primarily an **SDK distributed via npm** (the `@publication-mcp-studio/platform` package and its companion publication library) that other applications can embed to add scientific publication + MCP-endpoint capabilities. The Vite+React frontend (`artifacts/publication-studio`) and Express API (`artifacts/api-server`) here are a **reference / demo host** for the SDK — they exist to exercise and showcase the library, not to be the end product. Keep changes scoped accordingly: prefer adding capability to the SDK packages, and treat the frontend/API as thin consumers.
+This project is primarily an **SDK distributed via npm** — the `@publication-mcp-studio/platform` package — that other applications embed to add a generic publication system (blogs, stories, tutorials, scientific articles, etc.) plus MCP-endpoint capabilities. The Vite+React frontend (`artifacts/publication-studio`) and Express API (`artifacts/api-server`) here are a **reference / demo host** for the SDK — they exist to exercise and showcase the library, not to be the end product. Keep changes scoped accordingly: prefer adding capability to the SDK package, and treat the frontend/API as thin consumers.
+
+### SDK location and publish workflow
+
+- **Source of truth**: `lib/publication-platform/` (workspace package, currently v0.3.0).
+- The api-server consumes it via `workspace:*`, so `src/*.ts` edits flow through esbuild at api-server restart — no SDK rebuild needed during development.
+- Build / test: `pnpm --filter @publication-mcp-studio/platform build` (tsup → `dist/`) and `pnpm --filter @publication-mcp-studio/platform test` (25 unit tests).
+- Publish to npm: bump `package.json#version` + `CHANGELOG.md`, then `cd lib/publication-platform && npm publish` (the `prepublishOnly` script re-runs build + tests). `publishConfig.exports` rewrites the public exports to `dist/*.js` so npm consumers get compiled JS while the workspace keeps using `src/`.
+- See `lib/publication-platform/PUBLISHING.md` for the full step-by-step.
 
 ## Stack
 

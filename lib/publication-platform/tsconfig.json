@@ -1,11 +1,14 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "incremental": false,
     "noEmit": false,
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "lib": ["es2022", "dom"],
+    "types": ["node"],
+    "declaration": true,
+    "noImplicitAny": false
   },
-  "include": [
-    "src/**/*.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }
