@@ -1,3 +1,4 @@
+import { PUBLICATION_MEDIA_LIMIT, readPublicationBytes } from '@publication-mcp-studio/platform'
 import { Buffer } from 'node:buffer'
 import { getPublicationMediaBucketName, getPublicationPlatform } from './publication-platform.js'
 import type { PublicationMediaAsset } from '@publication-mcp-studio/platform'
@@ -82,18 +83,15 @@ function clampPublicationMediaLimit(limit?: number) {
 }
 
 async function resolvePublicationMediaArticleSlug(articleIdentifier?: string, articleSlug?: string) {
-  const requestedSlug = articleSlug?.trim()
-
-  if (requestedSlug) {
-    return slugifyPublicationTitle(requestedSlug)
-  }
-
-  const requestedIdentifier = articleIdentifier?.trim()
+  const requestedIdentifier = articleSlug?.trim() || articleIdentifier?.trim()
   if (!requestedIdentifier) {
     return 'shared'
   }
 
-  const article = await getPublicationPlatform().publicationStore.getArticleByIdentifier(requestedIdentifier)
+  const store = getPublicationPlatform().publicationStore
+  let article = await store.getArticleByIdentifier(requestedIdentifier)
+  const revision = article?.metadata.publicationRevision as { articleId?: string } | undefined
+  if (revision?.articleId) article = await store.getArticleByIdentifier(revision.articleId)
   return article?.slug ? slugifyPublicationTitle(article.slug) : slugifyPublicationTitle(requestedIdentifier)
 }
 
@@ -108,6 +106,7 @@ async function resolvePublicationMediaBuffer(input: {
       ? dataBase64.slice(dataBase64.indexOf(',') + 1)
       : dataBase64
 
+    if (normalizedBase64.length > Math.ceil(PUBLICATION_MEDIA_LIMIT / 3) * 4) throw new PublicationApiError(413, 'payload_too_large', 'Media exceeds 8 MiB.')
     try {
       return Buffer.from(normalizedBase64, 'base64')
     } catch (error) {
@@ -121,7 +120,8 @@ async function resolvePublicationMediaBuffer(input: {
     await assertSafePublicationMediaSourceUrlDns(sourceUrl)
     const { fetch: undiciFetch } = await import('undici')
     const dispatcher = await createSafePublicationMediaDispatcher()
-    const response = await undiciFetch(sourceUrl, { redirect: 'manual', dispatcher })
+    try {
+    const response = await undiciFetch(sourceUrl, { redirect: 'manual', dispatcher, signal: AbortSignal.timeout(10_000) })
 
     if (response.status >= 300 && response.status < 400) {
       throw new PublicationApiError(
@@ -139,8 +139,9 @@ async function resolvePublicationMediaBuffer(input: {
       )
     }
 
-    const arrayBuffer = await response.arrayBuffer()
-    return Buffer.from(arrayBuffer)
+    if (Number(response.headers.get('content-length')) > PUBLICATION_MEDIA_LIMIT) { await response.body?.cancel(); throw new PublicationApiError(413, 'payload_too_large', 'Media exceeds 8 MiB.') }
+    return Buffer.from(await readPublicationBytes(response.body as unknown as ReadableStream<Uint8Array>, PUBLICATION_MEDIA_LIMIT))
+    } finally { await dispatcher.close() }
   }
 
   throw new PublicationApiError(

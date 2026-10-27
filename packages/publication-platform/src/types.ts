@@ -214,12 +214,27 @@ export type PublicationMediaUploadPayload = {
   embedMarkdown: string
 }
 
+/** Public supporting material. Text is supplied by the author/harness, never parsed on the engine. */
+export type PublicationAttachment = {
+  id: string
+  url: string
+  fileName: string
+  contentType: string
+  sizeBytes: number | null
+  kind: PublicationMediaAsset['kind']
+  label: string
+  description: string
+  textContent?: string
+}
+
 export interface PublicationStore {
   listArticles(options?: PublicationArticleListOptions): Promise<PublicationArticleRecord[]>
   countArticles?(options?: Omit<PublicationArticleListOptions, 'limit' | 'offset' | 'cursor'>): Promise<number>
   getArticleByIdentifier(identifier: string): Promise<PublicationArticleRecord | null>
   createArticle(input: PublicationArticleRecord): Promise<PublicationArticleRecord>
   updateArticle(id: string, updates: Partial<PublicationArticleRecord>): Promise<PublicationArticleRecord>
+  /** Atomically compare all publication content fields and update; null means conflict. */
+  updateArticleIfMatches?(expected: PublicationArticleRecord, updates: Partial<PublicationArticleRecord>): Promise<PublicationArticleRecord | null>
   deleteArticle(id: string): Promise<void>
 }
 
@@ -253,6 +268,9 @@ export interface AuditStore {
 }
 
 export interface MediaStore {
+  getMediaByPublicUrl?(url: string): Promise<PublicationMediaAsset | null>
+  /** Read a private object by inventory record; never fetch an arbitrary URL. */
+  readMedia?(asset: PublicationMediaAsset): Promise<Uint8Array>
   uploadMedia(input: PublicationMediaUploadPayload): Promise<PublicationMediaAsset>
   listMedia(articleSlug: string, limit?: number): Promise<PublicationMediaAsset[]>
   deleteMedia(path: string): Promise<void>

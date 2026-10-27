@@ -14,6 +14,13 @@ export * from './errors'
 export * from './auth'
 export * from './frontmatter'
 export * from './http'
+export * from './public'
+export * from './lifecycle'
+export * from './limits'
+export * from './backup'
+export * from './assets'
+export * from './attachments'
+export * from './stdio'
 export * from './media-storage'
 export * from './token-scopes'
 export * from './types'
@@ -23,7 +30,7 @@ export {
   migrateNeonPublicationPlatform,
   NEON_PUBLICATION_SCHEMA_SQL,
 } from './neon'
-export { createSupabasePublicationPlatform } from './supabase'
+export { createSupabasePublicationPlatform, SUPABASE_PRIVATE_MEDIA_SQL, SUPABASE_PRIVATE_ENGINE_SQL } from './supabase'
 export {
   createTemplatePublicationPlatform,
   createTemplatePublicationPlatformFactory,

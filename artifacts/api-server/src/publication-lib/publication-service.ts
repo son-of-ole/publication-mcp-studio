@@ -8,6 +8,7 @@ import {
   type PublicationMetadata,
 } from './publications.js'
 import { getPublicationPlatform } from './publication-platform.js'
+import { assertPublicationMutation, assertPublicationPermission, updatePublicationIfUnchanged } from '@publication-mcp-studio/platform'
 import type {
   PublicationArticleRecord,
   PublicationArticleStatus,
@@ -270,7 +271,7 @@ export function serializePublicationArticle(
       ? document.metadata.publicationLabel.trim()
       : null,
     tags: Array.isArray(document.metadata.tags) ? document.metadata.tags : [],
-    metadata: { ...document.customFrontmatter },
+    metadata: { ...article.metadata, ...document.customFrontmatter },
     contentMarkdown: options.includeContent === false ? undefined : article.contentMarkdown,
     document,
     presentation,
@@ -282,10 +283,18 @@ export async function listPublicationArticles(options: PublicationListOptions = 
   const articles = await platform.publicationStore.listArticles({
     status: options.status,
     search: options.search,
+    category: options.category,
+    tag: options.tag,
+    tags: options.tags,
+    offset: options.offset,
+    cursor: options.cursor,
     limit: clampLimit(options.limit),
   })
 
-  const total = articles.length
+  const total = await platform.publicationStore.countArticles?.({
+    status: options.status, search: options.search, category: options.category,
+    tag: options.tag, tags: options.tags,
+  }) ?? articles.length
 
   return {
     articles: articles.map((article) =>
@@ -307,6 +316,7 @@ export async function getPublicationArticle(identifier: string, includeContent =
 }
 
 export async function createPublicationArticle(input: PublicationArticleMutationInput, actor?: PublicationAuthContext) {
+  assertPublicationMutation(actor, null, input.status ?? 'draft')
   const articleTitle = deriveArticleTitle(undefined, input)
   const contentMarkdown = composeMarkdownForMutation(undefined, input, articleTitle)
   const slug = normalizeRequestedSlug(input.slug, articleTitle)
@@ -341,6 +351,7 @@ export async function updatePublicationArticle(
   actor?: PublicationAuthContext
 ) {
   const existingArticle = await findPublicationArticle(identifier)
+  assertPublicationMutation(actor, existingArticle, input.status ?? existingArticle.status)
   const nextTitle = deriveArticleTitle(existingArticle, input)
   const contentMarkdown = composeMarkdownForMutation(existingArticle, input, nextTitle)
 
@@ -352,7 +363,7 @@ export async function updatePublicationArticle(
     updatedAt: new Date().toISOString(),
   }
 
-  const updatedArticle = await getPublicationPlatform().publicationStore.updateArticle(existingArticle.id, payload)
+  const updatedArticle = await updatePublicationIfUnchanged(getPublicationPlatform().publicationStore, existingArticle, payload)
 
   await createPublicationArticleVersionSnapshot({
     article: updatedArticle,
@@ -364,23 +375,33 @@ export async function updatePublicationArticle(
 }
 
 export async function publishPublicationArticle(identifier: string, actor?: PublicationAuthContext) {
+  assertPublicationPermission(actor, ['articles:publish'])
   const existingArticle = await findPublicationArticle(identifier)
+  if (existingArticle.metadata.publicationRevision) throw new PublicationApiError(409, 'revision_requires_publish_revision', 'Use publish_revision with the reviewed digest.')
+  if (existingArticle.status === 'published') return serializePublicationArticle(existingArticle)
+  if (!existingArticle.title.trim() || !extractPublicationDocument(existingArticle.contentMarkdown, existingArticle.title).body.trim()) throw new PublicationApiError(400, 'empty_publication', 'Title and content are required before publishing.')
   const existingDocument = extractPublicationDocument(existingArticle.contentMarkdown, existingArticle.title)
   const nextMetadata = {
     ...existingDocument.metadata,
     published: existingDocument.metadata.published || new Date().toISOString().slice(0, 10),
   }
 
-  return updatePublicationArticle(identifier, {
+  const published = await updatePublicationIfUnchanged(getPublicationPlatform().publicationStore, existingArticle, {
     status: 'published',
-    metadata: nextMetadata,
-    body: existingDocument.body,
-    customFrontmatter: existingDocument.customFrontmatter,
-  }, actor)
+    metadata: { ...existingArticle.metadata, publicationEpoch: crypto.randomUUID() },
+    contentMarkdown: composePublicationMarkdown(nextMetadata, existingDocument.body, existingDocument.customFrontmatter),
+    updatedAt: new Date().toISOString(),
+  })
+  await createPublicationArticleVersionSnapshot({ article: published, sourceAction: 'publish', actor })
+  return serializePublicationArticle(published)
 }
 
 export async function unpublishPublicationArticle(identifier: string, actor?: PublicationAuthContext) {
-  return updatePublicationArticle(identifier, { status: 'draft' }, actor)
+  assertPublicationPermission(actor, ['articles:publish'])
+  const existing = await findPublicationArticle(identifier)
+  const draft = await updatePublicationIfUnchanged(getPublicationPlatform().publicationStore, existing, { status: 'draft', metadata: { ...existing.metadata, publicationEpoch: crypto.randomUUID() }, updatedAt: new Date().toISOString() })
+  await createPublicationArticleVersionSnapshot({ article: draft, sourceAction: 'unpublish', actor })
+  return serializePublicationArticle(draft)
 }
 
 export async function deletePublicationArticle(identifier: string, actor?: PublicationAuthContext) {

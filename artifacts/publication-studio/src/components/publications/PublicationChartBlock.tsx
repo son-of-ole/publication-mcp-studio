@@ -244,6 +244,14 @@ export default function PublicationChartBlock({
 
       <div className="p-5">
         <div style={{ height: `${height}px` }}>{chart}</div>
+        <details className="mt-4 overflow-x-auto text-sm text-slate-700">
+          <summary className="cursor-pointer font-semibold">Chart data</summary>
+          <table className="mt-3 w-full text-left">
+            <caption className="sr-only">{title}</caption>
+            <thead><tr><th scope="col">Label</th>{series.map((entry, index) => <th scope="col" key={index}>{entry.label}</th>)}</tr></thead>
+            <tbody>{labels.map((label, index) => <tr key={index}><th scope="row">{label}</th>{series.map((entry, seriesIndex) => <td key={seriesIndex}>{entry.values[index] ?? ''}</td>)}</tr>)}</tbody>
+          </table>
+        </details>
       </div>
     </section>
   )

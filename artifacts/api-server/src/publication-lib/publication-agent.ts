@@ -36,7 +36,7 @@ const PUBLICATION_BLOCK_GUIDE = [
   'Return one complete markdown document only, with no surrounding commentary or code fences.',
 ].join('\n')
 
-export async function generatePublicationDraft(input: PublicationAgentRequest): Promise<PublicationAgentResult> {
+async function generateDraft(input: PublicationAgentRequest): Promise<PublicationAgentResult> {
   const instruction = input.instruction.trim()
 
   if (!instruction) {
@@ -45,7 +45,10 @@ export async function generatePublicationDraft(input: PublicationAgentRequest): 
 
   const model = input.model?.trim() || process.env.PUBLICATION_AGENT_MODEL || DEFAULT_OPENROUTER_MODEL
   const markdownContext = resolveMarkdownContext(input)
-  const apiKey = process.env.OPENROUTER_API_KEY || process.env.NEXT_PUBLIC_OPENROUTER_API_KEY
+  if (instruction.length > 8000 || Buffer.byteLength(markdownContext) > 256 * 1024) throw new PublicationApiError(413, 'generation_context_too_large', 'Drafting context exceeds the configured input budget.')
+  const allowed = (process.env.PUBLICATION_AGENT_ALLOWED_MODELS || process.env.PUBLICATION_AGENT_MODEL || DEFAULT_OPENROUTER_MODEL).split(',').map(value => value.trim())
+  if (!allowed.includes(model)) throw new PublicationApiError(403, 'generation_model_not_allowed', 'This model is not enabled by the engine operator.')
+  const apiKey = process.env.OPENROUTER_API_KEY
 
   if (!apiKey) {
     throw new PublicationApiError(
@@ -57,6 +60,7 @@ export async function generatePublicationDraft(input: PublicationAgentRequest): 
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
@@ -65,6 +69,7 @@ export async function generatePublicationDraft(input: PublicationAgentRequest): 
     },
     body: JSON.stringify({
       model,
+      max_tokens: 4096,
       temperature: typeof input.temperature === 'number' ? input.temperature : 0.2,
       messages: [
         {
@@ -89,12 +94,7 @@ export async function generatePublicationDraft(input: PublicationAgentRequest): 
   const payload = await response.json().catch(() => null)
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload
-        ? stringifyProviderError(payload.error)
-        : `OpenRouter request failed with status ${response.status}.`
-
-    throw new PublicationApiError(response.status, 'openrouter_request_failed', message, payload)
+    throw new PublicationApiError(response.status, 'openrouter_request_failed', `Draft provider request failed (${response.status}).`)
   }
 
   const markdown = stripMarkdownFences(extractAssistantText(payload).trim())
@@ -180,4 +180,11 @@ function stringifyProviderError(errorValue: unknown) {
   }
 
   return 'The OpenRouter request failed.'
+}
+
+let activeGenerations = 0
+export async function generatePublicationDraft(input: PublicationAgentRequest): Promise<PublicationAgentResult> {
+  if (activeGenerations >= 2) throw new PublicationApiError(429, 'generation_busy', 'Draft generation capacity is currently full.')
+  activeGenerations++
+  try { return await generateDraft(input) } finally { activeGenerations-- }
 }

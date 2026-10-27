@@ -1,7 +1,8 @@
-import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, GetPublicAccessBlockCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { PUBLICATION_MEDIA_LIMIT, readPublicationBytes } from './limits'
 import { neon } from '@neondatabase/serverless'
 import { createLocalPublicationPlatform } from './local'
 import { PublicationApiError } from './errors'
@@ -535,28 +536,6 @@ function trimSlashes(value: string) {
   return value.replace(/^\/+|\/+$/g, '')
 }
 
-function buildS3PublicUrl(input: {
-  bucket: string
-  key: string
-  region: string
-  endpoint?: string
-  publicBaseUrl?: string
-}) {
-  if (input.publicBaseUrl) {
-    return `${input.publicBaseUrl.replace(/\/+$/g, '')}/${trimSlashes(input.key)}`
-  }
-
-  if (input.endpoint) {
-    throw new PublicationApiError(
-      500,
-      'publication_media_public_url_missing',
-      'Set PUBLICATION_MEDIA_PUBLIC_BASE_URL when using a custom S3 endpoint for publication media.'
-    )
-  }
-
-  return `https://${input.bucket}.s3.${input.region}.amazonaws.com/${trimSlashes(input.key)}`
-}
-
 function createS3Client(options: NonNullable<NeonPublicationPlatformOptions['mediaStorage']>) {
   if (!options.bucket || !options.region || !options.accessKeyId || !options.secretAccessKey) {
     throw new PublicationApiError(
@@ -748,6 +727,17 @@ export function createNeonPublicationPlatform(
       }
 
       return article
+    },
+
+    async updateArticleIfMatches(expected, updates) {
+      const next = { ...expected, ...updates }
+      const params: unknown[] = [expected.id, expected.title, expected.slug, expected.contentMarkdown, JSON.stringify(expected.metadata), expected.category, expected.status,
+        next.title, next.slug, next.contentMarkdown, JSON.stringify(next.metadata), next.category, next.status, next.updatedAt]
+      const expectedTags = replaceParam('$ARRAY', uniqueTextArray(expected.tags), params)
+      const nextTags = replaceParam('$ARRAY', uniqueTextArray(next.tags), params)
+      const rows = await queryRows(sql, `UPDATE articles SET title=$8, slug=$9, content_markdown=$10, metadata=$11::jsonb, category=$12, status=$13, updated_at=$14::timestamptz, tags=${nextTags}
+        WHERE id=$1::uuid AND title=$2 AND slug=$3 AND content_markdown=$4 AND metadata=$5::jsonb AND category IS NOT DISTINCT FROM $6 AND status=$7 AND tags=${expectedTags} RETURNING ${ARTICLE_COLUMNS}`, params)
+      return rows[0] ? normalizeArticleRow(rows[0]) : null
     },
 
     async deleteArticle(id: string) {
@@ -968,8 +958,23 @@ export function createNeonPublicationPlatform(
   }
 
   const mediaStore: MediaStore = {
+    async readMedia(asset) {
+      if (asset.bucket !== LOCAL_NEON_MEDIA_BUCKET) {
+        if (!s3Client || asset.bucket !== mediaStorageOptions.bucket || !asset.publicUrl.startsWith('/__publication-assets/')) throw new PublicationApiError(404, 'asset_not_found', 'Private media not found.')
+        const response = await s3Client.send(new GetObjectCommand({ Bucket: asset.bucket, Key: asset.path }), { abortSignal: AbortSignal.timeout(10_000) })
+        if ((response.ContentLength ?? 0) > PUBLICATION_MEDIA_LIMIT) throw new PublicationApiError(413, 'payload_too_large', 'Stored media exceeds 8 MiB.')
+        return readPublicationBytes(response.Body?.transformToWebStream() as ReadableStream<Uint8Array> | null, PUBLICATION_MEDIA_LIMIT)
+      }
+      const match = /^\/__publication-local\/media\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)$/.exec(asset.publicUrl)
+      if (!match) throw new PublicationApiError(404, 'asset_not_found', 'Media not found.')
+      return readFile(path.join(localMediaRoot, match[1], match[2]))
+    },
+    async getMediaByPublicUrl(url) {
+      const rows = await queryRows(sql, `SELECT ${MEDIA_COLUMNS} FROM publication_media_assets WHERE public_url=$1 LIMIT 1`, [url])
+      return rows[0] ? normalizeMediaRow(rows[0]) : null
+    },
     async uploadMedia(input: PublicationMediaUploadPayload) {
-      const fileName = `${Date.now()}-${input.fileName}`
+      const fileName = `${Date.now()}-${randomUUID()}-${input.fileName}`
       const baseKey = `publications/${input.articleSlug}/${fileName}`
       const objectKey = mediaStorageOptions.prefix
         ? `${trimSlashes(mediaStorageOptions.prefix)}/${baseKey}`
@@ -990,18 +995,15 @@ export function createNeonPublicationPlatform(
           throw new PublicationApiError(
             500,
             'publication_media_s3_config_missing',
-            'Publication media is configured for S3, but the required bucket, region, credentials, or public URL settings are incomplete.'
+            'Publication media is configured for S3, but the required bucket, region or credentials are incomplete.'
           )
         }
 
         bucket = mediaStorageOptions.bucket || 'publication-media'
-        publicUrl = buildS3PublicUrl({
-          bucket,
-          key: objectKey,
-          region: mediaStorageOptions.region || 'us-east-1',
-          endpoint: mediaStorageOptions.endpoint,
-          publicBaseUrl: mediaStorageOptions.publicBaseUrl,
-        })
+        const privacy = await s3Client!.send(new GetPublicAccessBlockCommand({ Bucket: bucket }), { abortSignal: AbortSignal.timeout(10_000) })
+        const block = privacy.PublicAccessBlockConfiguration
+        if (!block?.BlockPublicAcls || !block.IgnorePublicAcls || !block.BlockPublicPolicy || !block.RestrictPublicBuckets) throw new PublicationApiError(503, 'private_bucket_required', 'Enable all four S3 Block Public Access settings before uploading.')
+        publicUrl = `/__publication-assets/${input.articleSlug}/${fileName}`
 
         await s3Client?.send(
           new PutObjectCommand({
@@ -1010,12 +1012,12 @@ export function createNeonPublicationPlatform(
             Body: input.data,
             ContentType: input.contentType,
           })
-        )
+        , { abortSignal: AbortSignal.timeout(10_000) })
       } else {
         const diskDirectory = path.join(localMediaRoot, input.articleSlug)
         const diskPath = path.join(diskDirectory, fileName)
-        await mkdir(diskDirectory, { recursive: true })
-        await writeFile(diskPath, input.data)
+        await mkdir(diskDirectory, { recursive: true, mode: 0o700 })
+        await writeFile(diskPath, input.data, { mode: 0o600 })
         const fileStats = await stat(diskPath)
         sizeBytes = fileStats.size
       }

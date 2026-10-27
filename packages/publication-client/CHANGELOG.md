@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- Headless MCP publication workflow with scoped agent connections and explicit publication.
+- Private revisions with content-digest review and atomic conditional publication.
+- Structured image/document/data attachments, author-supplied supporting text, and
+  bounded 8 MiB chunked uploads with SHA-256, retry receipts, identity binding and expiry.
+- Public HTML without JavaScript, complete Markdown, metadata and discovery helpers.
+- Private cloud media through publication-gated URLs; old public URLs require migration.
+- Typed client lifecycle/upload/attachment methods, stdio transport for harnesses,
+  and clean tarball consumer/type verification. Requires Node.js 24 for server/CLI use.
+
+
 ## 0.3.2
 
 - Coordinated release with `@publication-mcp-studio/platform@0.3.2`.

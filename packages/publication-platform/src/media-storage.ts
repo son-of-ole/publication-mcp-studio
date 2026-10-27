@@ -61,8 +61,7 @@ export function hasPublicationS3MediaStorageConfig(
     options.bucket &&
       options.region &&
       options.accessKeyId &&
-      options.secretAccessKey &&
-      (options.publicBaseUrl || !options.endpoint)
+      options.secretAccessKey
   )
 }
 

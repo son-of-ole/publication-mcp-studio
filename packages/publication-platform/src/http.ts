@@ -1,9 +1,14 @@
+import { assertPublicationMutation, updatePublicationIfUnchanged } from './lifecycle'
+import { PUBLICATION_JSON_LIMIT, readPublicationJson } from './limits'
+import { executePublicationMcp } from './mcp'
 import { randomUUID } from 'node:crypto'
+import { createPublicationAssetTools } from './assets'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PublicationApiError } from './errors'
 import {
   authenticatePublicationRequest,
   issuePublicationToken,
+  readPublicationToken,
 } from './auth'
 import {
   PUBLICATION_MCP_TOOL_SCOPES,
@@ -24,6 +29,7 @@ export type PublicationFetchHandlerOptions = {
 
 export function createPublicationFetchHandler(options: PublicationFetchHandlerOptions) {
   const basePath = normalizeBasePath(options.basePath ?? '/publications')
+  const assets = createPublicationAssetTools(options.platform)
 
   return async function publicationFetchHandler(request: Request) {
     const url = new URL(request.url)
@@ -34,7 +40,7 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
         return json({}, 200)
       }
 
-      if (routePath === '/health' && request.method === 'GET') {
+      if ((routePath === '/health' || routePath === '/mcp/health') && request.method === 'GET') {
         return json({ ok: true, adapter: options.platform.kind })
       }
 
@@ -113,8 +119,9 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
       }
 
       if (routePath === '/articles' && request.method === 'POST') {
-        await authenticate(request, ['articles:write'])
+        const actor = await authenticate(request, ['articles:write'])
         const body = await readJson(request)
+        assertPublicationMutation(actor, null, body.status === 'published' ? 'published' : 'draft')
         const now = new Date().toISOString()
         const article: PublicationArticleRecord = {
           id: typeof body.id === 'string' ? body.id : randomUUID(),
@@ -124,8 +131,8 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
             ? body.contentMarkdown
             : typeof body.content_markdown === 'string'
               ? body.content_markdown
-              : '',
-          metadata: isRecord(body.metadata) ? body.metadata : {},
+              : typeof body.body === 'string' ? body.body : '',
+          metadata: isRecord(body.metadata) ? Object.fromEntries(Object.entries(body.metadata).filter(([key]) => !['publicationRevision', 'publicationEpoch'].includes(key))) : {},
           category: normalizeCategory(body),
           tags: normalizeTags(body),
           status: body.status === 'published' ? 'published' : 'draft',
@@ -147,9 +154,12 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
         if (!existing) {
           throw new PublicationApiError(404, 'article_not_found', 'Article not found.')
         }
+        if (articleActionMatch[2] === 'publish' && existing.metadata.publicationRevision) throw new PublicationApiError(409, 'revision_requires_publish_revision', 'Use publish_revision with the reviewed digest.')
+        if (articleActionMatch[2] === 'publish' && (!existing.title.trim() || !existing.contentMarkdown.trim())) throw new PublicationApiError(400, 'empty_publication', 'Title and content are required before publishing.')
         return json({
-          article: await options.platform.publicationStore.updateArticle(existing.id, {
+          article: await updatePublicationIfUnchanged(options.platform.publicationStore, existing, {
             status: articleActionMatch[2] === 'publish' ? 'published' : 'draft',
+            metadata: { ...existing.metadata, publicationEpoch: randomUUID() },
             updatedAt: new Date().toISOString(),
           }),
         })
@@ -166,13 +176,14 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
       }
 
       if (articleMatch && request.method === 'PATCH') {
-        await authenticate(request, ['articles:write'])
+        const actor = await authenticate(request, ['articles:write'])
         const identifier = decodeURIComponent(articleMatch[1])
         const existing = await options.platform.publicationStore.getArticleByIdentifier(identifier)
         if (!existing) {
           throw new PublicationApiError(404, 'article_not_found', 'Article not found.')
         }
         const body = await readJson(request)
+        assertPublicationMutation(actor, existing, body.status === 'published' ? 'published' : existing.status)
         const updates: Partial<PublicationArticleRecord> = {
           title: typeof body.title === 'string' ? body.title : existing.title,
           slug: typeof body.slug === 'string' ? body.slug : existing.slug,
@@ -180,14 +191,14 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
             ? body.contentMarkdown
             : typeof body.content_markdown === 'string'
               ? body.content_markdown
-              : existing.contentMarkdown,
-          metadata: isRecord(body.metadata) ? body.metadata : existing.metadata,
+              : typeof body.body === 'string' ? body.body : existing.contentMarkdown,
+          metadata: isRecord(body.metadata) ? { ...Object.fromEntries(Object.entries(body.metadata).filter(([key]) => !['publicationRevision', 'publicationEpoch'].includes(key))), ...(existing.metadata.publicationRevision ? { publicationRevision: existing.metadata.publicationRevision } : {}), ...(existing.metadata.publicationEpoch ? { publicationEpoch: existing.metadata.publicationEpoch } : {}) } : existing.metadata,
           category: normalizeCategory(body, existing.category),
           tags: normalizeTags(body, existing.tags),
           status: body.status === 'published' || body.status === 'draft' ? body.status : existing.status,
           updatedAt: new Date().toISOString(),
         }
-        return json({ article: await options.platform.publicationStore.updateArticle(existing.id, updates) })
+        return json({ article: await updatePublicationIfUnchanged(options.platform.publicationStore, existing, updates) })
       }
 
       if (articleMatch && request.method === 'DELETE') {
@@ -201,28 +212,13 @@ export function createPublicationFetchHandler(options: PublicationFetchHandlerOp
       }
 
       if (routePath === '/mcp' && request.method === 'POST') {
-        await authenticate(request, ['mcp:connect'])
         const payload = await readJson(request)
-        if (payload.method === 'tools/list') {
-          return json({
-            jsonrpc: '2.0',
-            id: payload.id ?? null,
-            result: {
-              tools: Object.entries(PUBLICATION_MCP_TOOL_SCOPES).map(([name, scope]) => ({
-                name,
-                requiredScope: scope,
-              })),
-            },
-          })
-        }
-        return json({
-          jsonrpc: '2.0',
-          id: payload.id ?? null,
-          error: {
-            code: -32601,
-            message: 'This reference handler exposes MCP discovery only. Mount the full Studio service for tool execution.',
-          },
-        }, 400)
+        return await executePublicationMcp(payload, {
+          platform: options.platform,
+          authenticate: scopes => authenticate(request, scopes),
+          assets: (name, args, actor) => assets(name, args, actor, actor.tokenId || readPublicationToken(request.headers)),
+          rest: (path, method, body) => publicationFetchHandler(new Request(new URL(`${basePath}${path}`, request.url), { method, headers: request.headers, body: body === undefined ? undefined : JSON.stringify(body) })),
+        })
       }
 
       throw new PublicationApiError(404, 'route_not_found', `No publication route matched ${request.method} ${routePath}.`)
@@ -325,7 +321,7 @@ function parseTags(searchParams: URLSearchParams) {
 }
 
 async function readJson(request: Request) {
-  return request.json().catch(() => ({})) as Promise<Record<string, unknown>>
+  return readPublicationJson(request)
 }
 
 function requireString(value: unknown, field: string) {
@@ -386,7 +382,10 @@ async function incomingMessageToRequest(req: IncomingMessage) {
 
 async function readIncomingBody(req: IncomingMessage) {
   const chunks: Buffer[] = []
+  let bytes = 0
   for await (const chunk of req) {
+    bytes += Buffer.byteLength(chunk)
+    if (bytes > PUBLICATION_JSON_LIMIT) throw new PublicationApiError(413, 'payload_too_large', 'Request body too large.')
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   }
   return Buffer.concat(chunks)
@@ -398,6 +397,8 @@ function json(body: unknown, status = 200) {
     headers: {
       'content-type': 'application/json',
       ...corsHeaders(),
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
     },
   })
 }
@@ -412,11 +413,11 @@ function corsHeaders() {
 
 function errorResponse(error: unknown) {
   if (error instanceof PublicationApiError) {
-    return json({ error: error.message, code: error.code, details: error.details }, error.status)
+    return json({ error: error.status >= 500 ? 'Publication service unavailable' : error.message, code: error.code }, error.status)
   }
 
   return json({
-    error: error instanceof Error ? error.message : 'Unknown publication server error',
+    error: 'Publication service unavailable',
     code: 'internal_error',
   }, 500)
 }

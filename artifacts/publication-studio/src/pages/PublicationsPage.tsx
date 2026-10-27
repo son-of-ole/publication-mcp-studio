@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { readPublicBootstrap } from '@/lib/public-bootstrap'
+import { getPublicationPresentation } from '@/lib/publications'
+import type { PublicationArticleRecord } from '@publication-mcp-studio/platform/types'
 import { FileText } from 'lucide-react'
 import PublicationsDirectory from '@/components/publications/PublicationsDirectory'
 
@@ -15,12 +18,15 @@ type PublicationCard = {
 }
 
 export default function PublicationsPage() {
-  const [articles, setArticles] = useState<PublicationCard[]>([])
+  const initial = readPublicBootstrap()
+  const initialArticles = initial?.kind === 'directory' ? initial.articles : null
+  const [articles, setArticles] = useState<PublicationCard[]>(() => initialArticles ? publicationCards(initialArticles) : [])
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialArticles)
 
   useEffect(() => {
-    fetch('/api/publications/articles?status=published&includeContent=true')
+    if (initialArticles) return
+    fetch('/content/articles?status=published&includeContent=true')
       .then(async (res) => {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to load publications')
@@ -28,22 +34,28 @@ export default function PublicationsPage() {
       })
       .then((data) => {
         const arts = Array.isArray(data.articles) ? data.articles : []
-        setArticles(arts.map((article: any) => ({
-          title: article.presentation?.metadata?.title || article.title,
-          slug: article.slug,
-          publishedLabel: article.presentation?.publishedLabel || '',
-          readingMinutes: article.presentation?.readingMinutes || 0,
-          subtitle: article.presentation?.metadata?.subtitle || '',
-          lead: article.presentation?.lead || '',
-          tags: article.presentation?.metadata?.tags || [],
-          authors: article.presentation?.metadata?.authors || [],
-          publicationLabel: article.presentation?.metadata?.publicationLabel || '',
-        })))
+        setArticles(publicationCards(arts))
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [initialArticles])
 
+  return <PublicationsView articles={articles} loading={loading} error={error} />
+}
+
+export function publicationCards(articles: PublicationArticleRecord[]): PublicationCard[] {
+  return articles.map(article => {
+    const presentation = getPublicationPresentation(article.title, article.contentMarkdown, article.createdAt)
+    return {
+      title: presentation.metadata.title || article.title, slug: article.slug,
+      publishedLabel: presentation.publishedLabel, readingMinutes: presentation.readingMinutes,
+      subtitle: presentation.metadata.subtitle, lead: presentation.lead, tags: presentation.metadata.tags,
+      authors: presentation.metadata.authors, publicationLabel: presentation.metadata.publicationLabel,
+    }
+  })
+}
+
+export function PublicationsView({ articles, loading = false, error = null }: { articles: PublicationCard[]; loading?: boolean; error?: string | null }) {
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f5fbff_0%,#f8fafc_35%,#ffffff_100%)] px-4 pb-16 pt-24">
       <div className="mx-auto max-w-6xl">

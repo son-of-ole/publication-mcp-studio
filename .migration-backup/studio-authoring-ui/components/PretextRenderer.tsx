@@ -18,6 +18,7 @@ const highlightExtension = {
     if (match) {
       return { type: 'highlight', raw: match[0], text: match[1], tokens: this.lexer.inlineTokens(match[1]) };
     }
+    return undefined
   }
 }
 
@@ -30,6 +31,7 @@ const underlineExtension = {
     if (match) {
       return { type: 'underline', raw: match[0], text: match[1], tokens: this.lexer.inlineTokens(match[1]) };
     }
+    return undefined
   }
 }
 

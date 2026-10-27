@@ -94,7 +94,7 @@ export default function BalancedPublicationTitle({
   text,
   className,
 }: BalancedPublicationTitleProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLHeadingElement | null>(null)
   const [titleLayout, setTitleLayout] = useState<BalancedTitleLayout | null>(null)
 
   useEffect(() => {
@@ -143,19 +143,20 @@ export default function BalancedPublicationTitle({
   }, [text])
 
   return (
-    <div ref={containerRef} className={className}>
+    <h1 ref={containerRef} className={className}>
       {titleLayout ? (
-        <div
-          className="mx-auto"
+        <span
+          className="mx-auto block"
           style={{
             width: `${titleLayout.width}px`,
             maxWidth: '100%',
           }}
         >
           {titleLayout.lines.map((line, index) => (
-            <div
+            <span
               key={`${line}-${index}`}
               style={{
+                display: 'block',
                 fontFamily: 'Georgia, "Iowan Old Style", "Times New Roman", serif',
                 fontSize: `${titleLayout.fontSize}px`,
                 fontWeight: 700,
@@ -164,14 +165,14 @@ export default function BalancedPublicationTitle({
               }}
             >
               {line}
-            </div>
+            </span>
           ))}
-        </div>
+        </span>
       ) : (
-        <h1 className="mx-auto text-center text-4xl font-bold leading-tight tracking-tight text-slate-950 sm:text-5xl">
+        <span className="mx-auto block text-center text-4xl font-bold leading-tight tracking-tight text-slate-950 sm:text-5xl">
           {text}
-        </h1>
+        </span>
       )}
-    </div>
+    </h1>
   )
 }

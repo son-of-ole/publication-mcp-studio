@@ -1,4 +1,5 @@
-import Cite from 'citation-js'
+import { Cite } from '@citation-js/core'
+import '@citation-js/plugin-csl'
 
 export type PublicationFrontmatterValue = string | string[]
 
@@ -597,6 +598,9 @@ function normalizeListValue(value: PublicationFrontmatterValue | string[]): stri
 }
 
 function stripWrappingQuotes(value: string): string {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try { return JSON.parse(value) as string } catch { /* Preserve legacy quoted values. */ }
+  }
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
     (value.startsWith("'") && value.endsWith("'"))
@@ -850,17 +854,12 @@ export function formatPublicationBibliographyHtml(references: PublicationReferen
   }
 
   try {
-    return new Cite(references.map(buildPublicationReferenceCsl))
-      .format('bibliography', {
-        format: 'html',
-        template: 'apa',
-        lang: 'en-US',
-      })
-      .replace(
-        /data-csl-entry-id="([^"]+)"/g,
-        (_match: string, referenceId: string) =>
-          `id="${getPublicationReferenceAnchor(referenceId)}" data-csl-entry-id="${referenceId}"`,
-      )
+    // Citation metadata is untrusted. Escape text output rather than accepting
+    // generated library HTML as same-origin markup.
+    return '<div class="csl-bib-body">' + references.map(reference => {
+      const text = new Cite([buildPublicationReferenceCsl(reference)]).format('bibliography', { format: 'text', template: 'apa', lang: 'en-US' }).trim()
+      return `<div id="${getPublicationReferenceAnchor(reference.id)}" data-csl-entry-id="${escapeHtml(reference.id)}" class="csl-entry">${escapeHtml(text)}</div>`
+    }).join('') + '</div>'
   } catch {
     return [
       '<div class="csl-bib-body">',

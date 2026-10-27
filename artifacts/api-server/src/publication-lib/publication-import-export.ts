@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import mammoth from 'mammoth'
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { buildPublicationDocumentIR, type PublicationDocumentIR } from './publication-document-ir.js'
@@ -35,7 +34,7 @@ export type PublicationExportResult = {
   engine: 'native-markdown' | 'json-ir' | 'latex-scaffold' | 'docx-js' | 'pdf-lib'
 }
 
-export const SUPPORTED_IMPORT_FORMATS: PublicationImportFormat[] = ['markdown', 'text', 'docx', 'pdf', 'latex']
+export const SUPPORTED_IMPORT_FORMATS: PublicationImportFormat[] = ['markdown', 'text', 'latex']
 export const SUPPORTED_EXPORT_FORMATS: PublicationExportFormat[] = ['markdown', 'json', 'latex', 'docx', 'pdf']
 
 export async function importPublicationDocument(input: {
@@ -43,7 +42,9 @@ export async function importPublicationDocument(input: {
   mimeType?: string
   data: Uint8Array
 }): Promise<PublicationImportResult> {
+  if (input.data.byteLength > 8 * 1024 * 1024) throw new PublicationApiError(413, 'payload_too_large', 'Import exceeds 8 MiB.')
   const format = detectPublicationImportFormat(input.fileName, input.mimeType)
+  if (format === 'docx' || format === 'pdf') throw new PublicationApiError(501, 'isolated_import_worker_required', 'Binary document import requires an isolated worker. Submit Markdown or plain text to this engine.')
   const warnings: string[] = []
   let markdown = ''
 
@@ -59,21 +60,7 @@ export async function importPublicationDocument(input: {
       markdown = buildMarkdownFromImportedText(stripLatexCommands(decodeUtf8(input.data)), derivePublicationTitleFromFileName(input.fileName))
       warnings.push('LaTeX import currently extracts text and equations into a markdown scaffold.')
       break
-    case 'docx': {
-      const result = await mammoth.extractRawText({ buffer: Buffer.from(input.data) })
-      markdown = buildMarkdownFromImportedText(result.value, derivePublicationTitleFromFileName(input.fileName))
-      warnings.push('DOCX import currently preserves text content more reliably than rich styling.')
-      break
-    }
-    case 'pdf': {
-      const { PDFParse } = await import('pdf-parse')
-      const parser = new PDFParse({ data: Buffer.from(input.data) })
-      const parsed = await parser.getText()
-      markdown = buildMarkdownFromImportedText(parsed.text, derivePublicationTitleFromFileName(input.fileName))
-      await parser.destroy()
-      warnings.push('PDF import is text-first and may lose layout fidelity.')
-      break
-    }
+
   }
 
   const document = extractPublicationDocument(markdown, derivePublicationTitleFromFileName(input.fileName))

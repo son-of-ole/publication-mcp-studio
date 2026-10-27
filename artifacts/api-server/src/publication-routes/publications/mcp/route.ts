@@ -1,4 +1,8 @@
 import { readFile } from 'node:fs/promises'
+import { createPublicationAssetTools, PUBLICATION_ASSET_TOOLS, publicationAssetToolScope, readPublicationToken } from '@publication-mcp-studio/platform'
+import { getPublicationPlatform } from '../../../publication-lib/publication-platform.js'
+import { createPublicationArticleVersionSnapshot } from '../../../publication-lib/publication-versioning.js'
+import { createRevision, prepare, publishRevision } from '../../../publication-lib/publication-lifecycle.js'
 import path from 'node:path'
 import { generatePublicationDraft } from '../../../publication-lib/publication-agent.js'
 import { recordPublicationAuditEvent } from '../../../publication-lib/publication-audit.js'
@@ -36,24 +40,30 @@ import {
   listPublicationArticles,
   listPublicationArticleVersions,
   publishPublicationArticle,
+  unpublishPublicationArticle,
   restorePublicationArticleVersion,
   updatePublicationArticle,
 } from '../../../publication-lib/publication-service.js'
 import type { Request, Response } from 'express'
 
 const PUBLICATION_MCP_TOOL_SCOPES: Record<string, string> = {
+  ...Object.fromEntries(PUBLICATION_ASSET_TOOLS.map(tool => [tool.name, publicationAssetToolScope(tool.name)])),
   list_articles: 'articles:read',
   get_article: 'articles:read',
   get_document_ir: 'articles:read',
   create_article: 'articles:write',
   update_article: 'articles:write',
   publish_article: 'articles:publish',
+  unpublish_article: 'articles:publish',
+  create_revision: 'articles:write',
+  prepare_publication: 'articles:read',
+  publish_revision: 'articles:publish',
   delete_article: 'articles:delete',
   import_document: 'articles:write',
   export_document: 'articles:read',
   list_media: 'articles:read',
   upload_media: 'articles:write',
-  delete_media: 'articles:write',
+  delete_media: 'articles:delete',
   list_skills: 'mcp:connect',
   get_skill: 'mcp:connect',
   list_enabled_skills: 'mcp:connect',
@@ -70,6 +80,12 @@ export const MCP_PROTOCOL_VERSION = '2025-03-26'
 export const MCP_SERVER_NAME = 'publication-mcp-studio'
 
 export const TOOL_DEFINITIONS = [
+  ...PUBLICATION_ASSET_TOOLS,
+  ...[
+    { name: 'create_revision', description: 'Create a private working revision of a live article. Live content stays unchanged.' },
+    { name: 'prepare_publication', description: 'Read the exact draft and digest for review before publication.' },
+    { name: 'publish_revision', description: 'Publish exactly the reviewed revision if its live base is unchanged.' },
+  ].map(tool => ({ ...tool, inputSchema: { type: 'object', properties: { identifier: { type: 'string' }, ...(tool.name === 'publish_revision' ? { expectedDigest: { type: 'string' } } : {}) }, required: tool.name === 'publish_revision' ? ['identifier', 'expectedDigest'] : ['identifier'], additionalProperties: false } })),
   {
     name: 'list_articles',
     description: 'List publication articles from the publication article store.',
@@ -251,6 +267,14 @@ export const TOOL_DEFINITIONS = [
       },
       required: ['identifier'],
       additionalProperties: false,
+    },
+  },
+  {
+    name: 'unpublish_article',
+    description: 'Return a published article to a private draft, removing it from public delivery.',
+    inputSchema: {
+      type: 'object', properties: { identifier: { type: 'string' } },
+      required: ['identifier'], additionalProperties: false,
     },
   },
   {
@@ -463,6 +487,7 @@ export async function handleMcpGet(req: Request, res: Response) {
 
 export async function handleMcpPost(req: Request, res: Response) {
   Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v))
+  const requestId = typeof req.body?.id === 'string' || typeof req.body?.id === 'number' ? req.body.id : null
   try {
     const payload = req.body as JsonRpcRequest
     const method = payload.method
@@ -499,7 +524,7 @@ export async function handleMcpPost(req: Request, res: Response) {
         },
         serverInfo: {
           name: MCP_SERVER_NAME,
-          version: '1.0.0',
+          version: '0.4.0',
         },
       })
     }
@@ -519,7 +544,7 @@ export async function handleMcpPost(req: Request, res: Response) {
       const toolName = typeof params.name === 'string' ? params.name : ''
       const args = isRecord(params.arguments) ? params.arguments : {}
       assertToolScope(toolName, auth)
-      const structuredContent = await callTool(toolName, args, auth)
+      const structuredContent = await callTool(toolName, args, auth, auth.tokenId || readPublicationToken(req.headers))
 
       await recordPublicationAuditEvent({
         action: mapToolNameToAuditAction(toolName),
@@ -582,19 +607,26 @@ export async function handleMcpPost(req: Request, res: Response) {
     return jsonRpcError(res, payload.id ?? null, -32601, `Method "${method}" is not supported by this MCP server.`)
   } catch (error) {
     if (error instanceof PublicationApiError) {
-      return jsonRpcError(res, null, -32000, error.message, {
+      return jsonRpcError(res, requestId, -32000, error.message, {
         code: error.code,
-        details: error.details,
         status: error.status,
       }, error.status)
     }
 
-    const message = error instanceof Error ? error.message : 'Unknown MCP server error'
-    return jsonRpcError(res, null, -32000, message, undefined, 500)
+    return jsonRpcError(res, requestId, -32000, 'The publication engine could not complete this request.', undefined, 500)
   }
 }
 
-async function callTool(toolName: string, args: Record<string, unknown>, auth: PublicationAuthContext) {
+let assetTools: ReturnType<typeof createPublicationAssetTools> | undefined
+let assetContextKey = ''
+async function callTool(toolName: string, args: Record<string, unknown>, auth: PublicationAuthContext, ownerKey: string) {
+  if (PUBLICATION_ASSET_TOOLS.some(tool => tool.name === toolName)) {
+    const key = `${process.env.PUBLICATION_PLATFORM_ADAPTER}:${process.env.PUBLICATION_LOCAL_ROOT_DIR}`
+    if (!assetTools || key !== assetContextKey) { assetTools = createPublicationAssetTools(getPublicationPlatform()); assetContextKey = key }
+    const result = await assetTools(toolName, args, auth, ownerKey)
+    if ((toolName === 'attach_media' || toolName === 'detach_media') && 'article' in result && result.article) await createPublicationArticleVersionSnapshot({ article: result.article, sourceAction: toolName, actor: auth })
+    return result
+  }
   switch (toolName) {
     case 'list_articles':
       return listPublicationArticles({
@@ -764,6 +796,14 @@ async function callTool(toolName: string, args: Record<string, unknown>, auth: P
       return {
         article: await publishPublicationArticle(requiredString(args.identifier, 'identifier'), auth),
       }
+    case 'create_revision':
+      return createRevision(requiredString(args.identifier, 'identifier'), auth)
+    case 'prepare_publication':
+      return prepare(requiredString(args.identifier, 'identifier'), auth)
+    case 'publish_revision':
+      return publishRevision(requiredString(args.identifier, 'identifier'), requiredString(args.expectedDigest, 'expectedDigest'), auth)
+    case 'unpublish_article':
+      return { article: await unpublishPublicationArticle(requiredString(args.identifier, 'identifier'), auth) }
     case 'delete_article':
       return await deletePublicationArticle(requiredString(args.identifier, 'identifier'), auth)
     case 'generate_publication_draft':
@@ -809,6 +849,7 @@ async function readResource(uri: string, auth: PublicationAuthContext) {
         '- Frontmatter fields: `title`, `publicationLabel`, `subtitle`, `abstract`, `authors`, `authorProfiles`, `affiliations`, `tags`, `doi`, `journal`, `repositoryUrl`, `repositoryLabel`, `published`, `revised`, `canonicalUrl`, `heroImage`, `heroVideo`, `heroPoster`, `heroCaption`.',
         '- Author profiles: use one `authorProfiles` entry per author, either as `Name | email=... | orcid=... | social=... | github=... | url=...` or in the same order as `authors` with the name omitted.',
         '- Core scientific blocks: `::figure`, `::video`, `::interactive`, `::download`, `:::note`, `:::result`, `::chart`, `::dataset`, `::notebook`, `::lean`, `::reference`, `::bibliography`.',
+        '- Live edits: use `create_revision`, edit the private revision, call `prepare_publication`, then use a publisher connection with `publish_revision` and its exact `expectedDigest`. Never overwrite a live article or publish with a writer token.',
         '- Media storage: use `upload_media` to place assets in the publication storage bucket and receive ready-to-paste embed markdown.',
         '- Citations: use `[@citationKey]` inline and add `::reference{...}` entries in the document.',
         '- Math: use inline `$...$` and block `$$...$$` KaTeX syntax.',
@@ -1061,18 +1102,30 @@ function mapToolNameToAuditAction(toolName: string) {
       return 'articles.read'
     case 'run_publication_preset':
       return 'articles.read'
+    case 'create_revision':
     case 'create_article':
       return 'articles.create'
     case 'update_article':
+    case 'attach_media':
+    case 'detach_media':
       return 'articles.update'
     case 'list_media':
       return 'media.list'
     case 'upload_media':
+    case 'begin_media_upload':
+    case 'upload_media_chunk':
+    case 'complete_media_upload':
+    case 'abort_media_upload':
       return 'media.upload'
+    case 'list_attachments':
+      return 'articles.read'
     case 'delete_media':
       return 'media.delete'
+    case 'publish_revision':
     case 'publish_article':
       return 'articles.publish'
+    case 'unpublish_article':
+      return 'articles.update'
     case 'delete_article':
       return 'articles.delete'
     case 'generate_publication_draft':
@@ -1088,6 +1141,8 @@ function mapToolNameToAuditAction(toolName: string) {
 
 function getVisibleToolDefinitions(auth: PublicationAuthContext) {
   return TOOL_DEFINITIONS.filter((tool) => {
+    const scope = PUBLICATION_MCP_TOOL_SCOPES[tool.name]
+    if (!scope || (!auth.scopes.includes('*') && !auth.scopes.some(granted => granted === scope))) return false
     if (
       tool.name === 'list_verifiers' ||
       tool.name === 'verify_document' ||

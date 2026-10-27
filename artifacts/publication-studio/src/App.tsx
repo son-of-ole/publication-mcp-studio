@@ -6,10 +6,6 @@ import NotFound from "@/pages/not-found";
 import HomePage from "@/pages/HomePage";
 import PublicationsPage from "@/pages/PublicationsPage";
 import ArticlePage from "@/pages/ArticlePage";
-import AdminLoginPage from "@/pages/AdminLoginPage";
-import AdminArticlesPage from "@/pages/AdminArticlesPage";
-import AdminNewArticlePage from "@/pages/AdminNewArticlePage";
-import AdminEditArticlePage from "@/pages/AdminEditArticlePage";
 
 const queryClient = new QueryClient();
 
@@ -19,10 +15,6 @@ function Router() {
       <Route path="/" component={HomePage} />
       <Route path="/publications" component={PublicationsPage} />
       <Route path="/publications/:slug" component={ArticlePage} />
-      <Route path="/admin/login" component={AdminLoginPage} />
-      <Route path="/admin/articles" component={AdminArticlesPage} />
-      <Route path="/admin/articles/new" component={AdminNewArticlePage} />
-      <Route path="/admin/articles/:id/edit" component={AdminEditArticlePage} />
       <Route component={NotFound} />
     </Switch>
   );

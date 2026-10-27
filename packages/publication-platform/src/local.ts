@@ -1,5 +1,7 @@
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { PublicationApiError } from './errors'
+import { publicationContentDigest } from './lifecycle'
 import { randomUUID } from 'node:crypto'
 import type {
   AdminAuthStore,
@@ -198,13 +200,15 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
 
   async function writeLocalState(state: LocalState) {
     const tempFile = `${localStateFile}.${process.pid}.${randomUUID()}.tmp`
-    await writeFile(tempFile, JSON.stringify(state, null, 2))
+    await writeFile(tempFile, JSON.stringify(state, null, 2), { mode: 0o600 })
     await rename(tempFile, localStateFile)
   }
 
   async function ensureLocalState() {
-    await mkdir(localStateDir, { recursive: true })
-    await mkdir(localMediaRoot, { recursive: true })
+    await mkdir(localStateDir, { recursive: true, mode: 0o700 })
+    await mkdir(localMediaRoot, { recursive: true, mode: 0o700 })
+    await chmod(localStateDir, 0o700)
+    await chmod(localMediaRoot, 0o700)
 
     try {
       const raw = await readFile(localStateFile, 'utf8')
@@ -223,8 +227,12 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
       }
 
       const initialState = createInitialState(seedDemoContent)
-      await writeLocalState(initialState)
-      return initialState
+      const initialFile = `${localStateFile}.${randomUUID()}.init`
+      await writeFile(initialFile, JSON.stringify(initialState), { mode: 0o600 })
+      try { await link(initialFile, localStateFile) }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
+      finally { await unlink(initialFile) }
+      return JSON.parse(await readFile(localStateFile, 'utf8')) as LocalState
     }
   }
 
@@ -278,6 +286,7 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
 
     async createArticle(input: PublicationArticleRecord) {
       return updateLocalState((state) => {
+        if (state.articles.some(article => article.id === input.id || article.slug === input.slug)) throw new PublicationApiError(409, 'article_conflict', 'Article ID and slug must be unique.')
         state.articles.unshift(input)
         return input
       })
@@ -285,11 +294,22 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
 
     async updateArticle(id: string, updates: Partial<PublicationArticleRecord>) {
       return updateLocalState((state) => {
+        if (updates.slug && state.articles.some(article => article.id !== id && article.slug === updates.slug)) throw new PublicationApiError(409, 'article_conflict', 'Article slug must be unique.')
         const article = state.articles.find((entry) => entry.id === id)
         if (!article) {
           throw new Error(`Article ${id} was not found in the local store.`)
         }
 
+        Object.assign(article, updates)
+        return article
+      })
+    },
+
+    async updateArticleIfMatches(expected, updates) {
+      return updateLocalState(state => {
+        const article = state.articles.find(entry => entry.id === expected.id)
+        if (!article || publicationContentDigest(article) !== publicationContentDigest(expected)) return null
+        if (updates.slug && state.articles.some(entry => entry.id !== expected.id && entry.slug === updates.slug)) throw new PublicationApiError(409, 'article_conflict', 'Article slug must be unique.')
         Object.assign(article, updates)
         return article
       })
@@ -417,16 +437,22 @@ export function createLocalPublicationPlatform(options: LocalPublicationPlatform
   }
 
   const mediaStore: MediaStore = {
+    async readMedia(asset) {
+      const match = /^\/__publication-local\/media\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)$/.exec(asset.publicUrl)
+      if (!match) throw new PublicationApiError(404, 'asset_not_found', 'Media not found.')
+      return readFile(path.join(localMediaRoot, match[1], match[2]))
+    },
+    async getMediaByPublicUrl(url) { return (await ensureLocalState()).media.find(asset => asset.publicUrl === url) ?? null },
     async uploadMedia(input: PublicationMediaUploadPayload) {
       const timePrefix = Date.now()
-      const fileName = `${timePrefix}-${input.fileName}`
+      const fileName = `${timePrefix}-${randomUUID()}-${input.fileName}`
       const diskDirectory = path.join(localMediaRoot, input.articleSlug)
       const diskPath = path.join(diskDirectory, fileName)
       const publicPath = `${localMediaPublicPrefix}/${input.articleSlug}/${fileName}`
       const now = new Date().toISOString()
 
-      await mkdir(diskDirectory, { recursive: true })
-      await writeFile(diskPath, input.data)
+      await mkdir(diskDirectory, { recursive: true, mode: 0o700 })
+      await writeFile(diskPath, input.data, { mode: 0o600 })
       const fileStats = await stat(diskPath)
 
       return updateLocalState((state) => {

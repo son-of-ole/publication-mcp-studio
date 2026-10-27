@@ -15,6 +15,13 @@ export const PUBLICATION_SCOPES = PUBLICATION_TOKEN_SCOPES
 export type PublicationScope = PublicationTokenScope
 
 export const PUBLICATION_MCP_TOOL_SCOPES = {
+  begin_media_upload: 'articles:write',
+  upload_media_chunk: 'articles:write',
+  complete_media_upload: 'articles:write',
+  abort_media_upload: 'articles:write',
+  attach_media: 'articles:write',
+  detach_media: 'articles:write',
+  list_attachments: 'articles:read',
   list_articles: 'articles:read',
   get_article: 'articles:read',
   get_document_ir: 'articles:read',
@@ -34,6 +41,10 @@ export const PUBLICATION_MCP_TOOL_SCOPES = {
   upload_media: 'articles:write',
   restore_article_version: 'articles:write',
   publish_article: 'articles:publish',
+  unpublish_article: 'articles:publish',
+  create_revision: 'articles:write',
+  prepare_publication: 'articles:read',
+  publish_revision: 'articles:publish',
   delete_article: 'articles:delete',
   delete_media: 'articles:delete',
   generate_publication_draft: 'agent:generate',

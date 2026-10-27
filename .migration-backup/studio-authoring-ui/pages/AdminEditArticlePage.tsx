@@ -23,7 +23,12 @@ export default function AdminEditArticlePage() {
         return data
       })
       .then((data) => {
-        if (data) setArticle(data.article)
+        if (data) setArticle({
+          ...data.article,
+          content_markdown: data.article.contentMarkdown,
+          created_at: data.article.createdAt,
+          updated_at: data.article.updatedAt,
+        })
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))

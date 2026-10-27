@@ -104,6 +104,19 @@ export const PUBLICATION_SCOPES = [
   'tokens:write',
 ] as const
 
+/** Normal harness authority: author and publish, without account administration or deletion. */
+export const PUBLICATION_AGENT_SCOPES = ['mcp:connect', 'articles:read', 'articles:write', 'articles:publish'] as const
+
+export type PublicationAttachment = {
+  id: string; url: string; fileName: string; contentType: string; sizeBytes: number | null
+  kind: 'image' | 'video' | 'audio' | 'document' | 'other'
+  label: string; description: string; textContent?: string
+}
+export type PublicationMediaAsset = {
+  bucket: string; path: string; publicUrl: string; fileName: string; contentType: string
+  sizeBytes: number | null; kind: PublicationAttachment['kind']; articleSlug: string; embedMarkdown: string
+}
+
 export type PublicationTokenRecord = {
   id: string
   label: string
@@ -151,7 +164,7 @@ export function createPublicationClient<TMetadata extends Record<string, unknown
     pathname: string,
     init: RequestInit & { query?: Record<string, string | number | boolean | string[] | undefined> } = {}
   ) {
-    const url = buildRequestUrl(endpoint, pathname)
+    let url = buildRequestUrl(endpoint, pathname)
 
     if (init.query) {
       const query = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
@@ -169,10 +182,7 @@ export function createPublicationClient<TMetadata extends Record<string, unknown
       }
       const [pathOnly] = url.split('?')
       const serialized = query.toString()
-      return request<T>(serialized ? `${pathOnly}?${serialized}` : pathOnly, {
-        ...init,
-        query: undefined,
-      })
+      url = serialized ? `${pathOnly}?${serialized}` : pathOnly
     }
 
     const headers = new Headers(options.headers)
@@ -189,8 +199,9 @@ export function createPublicationClient<TMetadata extends Record<string, unknown
       incoming.forEach((value, key) => headers.set(key, value))
     }
 
+    const { query: _query, ...requestInit } = init
     const response = await fetchImpl(url, {
-      ...init,
+      ...requestInit,
       headers,
     })
     const data = await parseJsonSafely(response)
@@ -210,10 +221,56 @@ export function createPublicationClient<TMetadata extends Record<string, unknown
     return data as T
   }
 
+  async function toolResult<T>(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+    const response = await request<{ error?: { code?: number; message?: string }; result?: { isError?: boolean; structuredContent?: T; content?: Array<{ text?: string }> } }>('/mcp', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: `sdk-${name}`, method: 'tools/call', params: { name, arguments: args } }), signal })
+    if (response.error || response.result?.isError) throw new PublicationClientError({ status: 400, code: 'mcp_tool_failed', message: response.error?.message || response.result?.content?.[0]?.text || 'MCP tool failed.' })
+    if (response.result?.structuredContent !== undefined) return response.result.structuredContent
+    const text = response.result?.content?.find(item => typeof item.text === 'string')?.text
+    if (text) { try { return JSON.parse(text) as T } catch { /* Invalid host response. */ } }
+    throw new PublicationClientError({ status: 502, code: 'invalid_mcp_result', message: 'The engine did not return structured tool output.' })
+  }
+
   return {
     baseUrl: endpoint.baseUrl,
     origin: endpoint.origin,
     pathPrefix: endpoint.pathPrefix,
+
+    createRevision(identifier: string, init: { signal?: AbortSignal } = {}) {
+      return toolResult<{ article: PublicationArticleResponse<TMetadata> }>('create_revision', { identifier }, init.signal)
+    },
+    preparePublication(identifier: string, init: { signal?: AbortSignal } = {}) {
+      return toolResult<{ article: PublicationArticleResponse<TMetadata>; digest: string; ready: boolean }>('prepare_publication', { identifier }, init.signal)
+    },
+    publishRevision(identifier: string, expectedDigest: string, init: { signal?: AbortSignal } = {}) {
+      return toolResult<{ article: PublicationArticleResponse<TMetadata> }>('publish_revision', { identifier, expectedDigest }, init.signal)
+    },
+    attachMedia(identifier: string, input: { url: string; label?: string; description?: string; textContent?: string }, init: { signal?: AbortSignal } = {}) {
+      return toolResult<{ article: PublicationArticleResponse<TMetadata>; attachments: PublicationAttachment[] }>('attach_media', { identifier, ...input }, init.signal)
+    },
+    detachMedia(identifier: string, attachmentId: string, init: { signal?: AbortSignal } = {}) {
+      return toolResult<{ article: PublicationArticleResponse<TMetadata>; attachments: PublicationAttachment[] }>('detach_media', { identifier, attachmentId }, init.signal)
+    },
+    listAttachments(identifier: string, init: { signal?: AbortSignal } = {}) {
+      return toolResult<{ attachments: PublicationAttachment[] }>('list_attachments', { identifier }, init.signal)
+    },
+    async uploadMedia(input: { identifier: string; fileName: string; contentType?: string; data: Uint8Array }, init: { signal?: AbortSignal } = {}) {
+      if (!input.data.byteLength || input.data.byteLength > 8 * 1024 * 1024) throw new PublicationClientError({ status: 413, code: 'payload_too_large', message: 'Files must contain between 1 byte and 8 MiB.' })
+      const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(input.data)))
+      const sha256 = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')
+      const started = await toolResult<{ uploadId: string; chunkBytes: number }>('begin_media_upload', { identifier: input.identifier, fileName: input.fileName, contentType: input.contentType, sizeBytes: input.data.byteLength, sha256 }, init.signal)
+      if (!Number.isSafeInteger(started.chunkBytes) || started.chunkBytes < 1 || started.chunkBytes > 256 * 1024) throw new PublicationClientError({ status: 502, message: 'Invalid engine upload chunk size.' })
+      try {
+        for (let offset = 0, index = 0; offset < input.data.length; offset += started.chunkBytes, index++) {
+          const chunk = input.data.subarray(offset, offset + started.chunkBytes)
+          let binary = ''; for (const byte of chunk) binary += String.fromCharCode(byte)
+          await toolResult('upload_media_chunk', { uploadId: started.uploadId, index, dataBase64: globalThis.btoa(binary) }, init.signal)
+        }
+        return await toolResult<{ asset: PublicationMediaAsset }>('complete_media_upload', { uploadId: started.uploadId }, init.signal)
+      } catch (error) {
+        await toolResult('abort_media_upload', { uploadId: started.uploadId }, AbortSignal.timeout(5000)).catch(() => undefined)
+        throw error
+      }
+    },
 
     health(init: { signal?: AbortSignal } = {}) {
       return request<{ ok: boolean; protocolVersion?: string; server?: string; tools?: number; toolNames?: string[] }>(

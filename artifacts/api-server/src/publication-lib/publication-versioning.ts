@@ -1,4 +1,5 @@
 import { getPublicationPlatform } from './publication-platform.js'
+import { assertPublicationMutation, updatePublicationIfUnchanged } from '@publication-mcp-studio/platform'
 import type { PublicationArticleRecord, PublicationAuthContext } from '@publication-mcp-studio/platform'
 import { PublicationApiError } from './publication-errors.js'
 
@@ -22,7 +23,7 @@ export async function createPublicationArticleVersionSnapshot(input: {
     status: input.article.status,
     actorLabel: input.actor?.label ?? null,
     actorType: input.actor?.tokenType ?? null,
-    metadata: input.metadata ?? null,
+    metadata: { ...input.metadata, articleMetadata: input.article.metadata },
   })
 }
 
@@ -41,6 +42,7 @@ export async function restorePublicationArticleVersion(input: {
   actor?: PublicationAuthContext
 }) {
   const article = await findPublicationArticleByIdentifier(input.articleIdentifier)
+  assertPublicationMutation(input.actor, article, 'draft')
   const platform = getPublicationPlatform()
   const version = await platform.versionStore.getVersion(article.id, input.versionId)
 
@@ -49,11 +51,12 @@ export async function restorePublicationArticleVersion(input: {
   }
 
   const restoredAt = new Date().toISOString()
-  const updatedArticle = await platform.publicationStore.updateArticle(article.id, {
+  const updatedArticle = await updatePublicationIfUnchanged(platform.publicationStore, article, {
     title: version.title,
     slug: version.slug,
     contentMarkdown: version.contentMarkdown,
-    status: version.status,
+    metadata: { ...(typeof version.metadata?.articleMetadata === 'object' && version.metadata.articleMetadata !== null ? version.metadata.articleMetadata as Record<string, unknown> : article.metadata), ...(article.metadata.publicationRevision ? { publicationRevision: article.metadata.publicationRevision } : {}), ...(article.metadata.publicationEpoch ? { publicationEpoch: article.metadata.publicationEpoch } : {}) },
+    status: 'draft',
     updatedAt: restoredAt,
   })
 

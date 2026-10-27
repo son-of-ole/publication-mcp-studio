@@ -19,24 +19,13 @@ expertMode = true
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
 
-[[ports]]
-localPort = 8080
-externalPort = 80
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
-
-[[ports]]
-localPort = 8082
-externalPort = 3001
-
+# Only the reader website is exposed. Deploy the MCP engine on its own secured origin.
 [[ports]]
 localPort = 19344
-externalPort = 3000
+externalPort = 80
 
 [userenv]
 
 [userenv.shared]
-PUBLICATION_ADMIN_EMAIL = "admin@example.com"
-PUBLICATION_ADMIN_PASSWORD = "demo-admin-password"
+# The reader website needs only PUBLICATION_SITE_URL and PUBLICATION_PUBLISHED_ORIGIN.
+# Configure engine credentials only in the separately deployed engine environment.

@@ -91,3 +91,41 @@ Then use `useArticles()` and `useArticle()` for the common public read path.
 - [Integration guide](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/publication-integration-guide.md)
 - [REST contract](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/publication-rest-contract.md)
 - [Metadata conventions](https://github.com/son-of-ole/publication-mcp-studio/blob/main/docs/metadata-conventions.md)
+
+## Agent harness publishing (0.4)
+
+Use a private, registered token with `PUBLICATION_AGENT_SCOPES` (read, write,
+publish and MCP). Never ship an authoring token to a website browser bundle.
+
+```ts
+const { article } = await publication.createArticle({
+  title: 'Research results', slug: 'research-results', body: '## Results\n\nThe article.',
+})
+const { asset } = await publication.uploadMedia({
+  identifier: article.id, fileName: 'supporting-report.pdf',
+  contentType: 'application/pdf', data: pdfBytes, // Uint8Array, at most 8 MiB
+})
+await publication.attachMedia(article.id, {
+  url: asset.publicUrl, label: 'Supporting report',
+  description: 'The methods and supporting evidence.',
+  textContent: 'Optional text extracted or summarized by the harness.',
+})
+const review = await publication.preparePublication(article.id)
+// Explicitly authorize publishing through your harness workflow.
+await publication.publishArticle(article.id)
+
+// Updating live content preserves its canonical URL and uses a private revision.
+const { article: revision } = await publication.createRevision(article.id)
+await publication.updateArticle(revision.id, { body: 'Revised article.' })
+const reviewed = await publication.preparePublication(revision.id)
+await publication.publishRevision(revision.id, reviewed.digest)
+```
+
+`uploadMedia` computes SHA-256 and sends bounded MCP chunks; no filesystem path or
+REST upload escape hatch is required. `attachMedia`, `detachMedia`, `listAttachments`,
+`createRevision`, `preparePublication`, and `publishRevision` use MCP. HTTP errors,
+JSON-RPC errors and MCP tool failures reject with `PublicationClientError`.
+An upload does not attach or publish the file until those explicit operations.
+The JSON request limit still applies to article content. The public Markdown
+contains supporting text supplied by the harness; the engine does not parse PDFs.
+See the repository workflow/operations guides for limits, privacy and deployment.

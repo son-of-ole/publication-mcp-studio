@@ -4,13 +4,25 @@
   "license": "MIT",
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
-    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "build": "node scripts/build.mjs",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --if-present run typecheck",
+    "dev": "node scripts/dev.mjs",
+    "build:sdk": "pnpm -r --filter './packages/*' run build",
+    "test": "pnpm run build:sdk && pnpm -r --filter \"./packages/*\" test && pnpm --filter @workspace/api-server test && pnpm --filter @workspace/publication-studio test",
+    "engine:connect": "node scripts/engine-connect.mjs",
+    "engine:connect:codex": "node scripts/connect-codex.mjs",
+    "engine:backup": "node scripts/engine-backup.mjs backup",
+    "engine:restore": "node scripts/engine-backup.mjs restore",
+    "verify:sdk": "node scripts/verify-sdk-release.mjs"
   },
   "private": true,
   "devDependencies": {
-    "typescript": "~5.9.2",
-    "prettier": "^3.8.1"
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3"
+  },
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=24"
   }
 }

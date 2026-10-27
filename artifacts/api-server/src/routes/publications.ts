@@ -85,9 +85,20 @@ async function getPublicationRouteAuth() {
   return mod
 }
 
-const upload = multer({ storage: multer.memoryStorage() })
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 12, fieldSize: 64 * 1024, parts: 14 } })
+const authorizeUpload: import('express').RequestHandler = async (req, res, next) => {
+  try {
+    const { resolvePublicationRouteAuth } = await getPublicationRouteAuth()
+    await resolvePublicationRouteAuth(req, ['articles:write'], 'import or upload publication content')
+    next()
+  } catch (error) { handleError(res, error) }
+}
 
 const router = Router()
+router.get('/readyz', async (_req, res) => {
+  try { await (await getPublicationPlatform()).publicationStore.listArticles({ limit: 1 }); res.json({ status: 'ready' }) }
+  catch { res.status(503).json({ status: 'unavailable' }) }
+})
 
 // Middleware to wire request context for auth stores
 router.use(cookieParser())
@@ -111,16 +122,15 @@ function handleError(res: any, error: unknown) {
     if (error instanceof PublicationApiError) {
       setCorsHeaders(res)
       return res.status(error.status).json({
-        error: error.message,
+        error: error.status >= 500 ? 'Publication service unavailable' : error.message,
         code: error.code,
-        details: error.details,
       })
     }
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = 'Publication service unavailable'
     setCorsHeaders(res)
     return res.status(500).json({ error: message, code: 'internal_error' })
   }).catch(() => {
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = 'Publication service unavailable'
     setCorsHeaders(res)
     return res.status(500).json({ error: message, code: 'internal_error' })
   })
@@ -299,7 +309,7 @@ router.get('/admin/production-readiness', async (req, res) => {
 
 // ── Extract Text ─────────────────────────────────────────────────────────────
 
-router.post('/extract-text', upload.single('file'), async (req, res) => {
+router.post('/extract-text', authorizeUpload, upload.single('file'), async (req, res) => {
   try {
     const { importPublicationDocument } = await getPublicationImportExport()
 
@@ -597,7 +607,7 @@ router.post('/publications/export', async (req, res) => {
   }
 })
 
-router.post('/publications/import', upload.single('file'), async (req, res) => {
+router.post('/publications/import', authorizeUpload, upload.single('file'), async (req, res) => {
   try {
     setCorsHeaders(res)
     const { assertPublicationApiAuth } = await getPublicationService()
@@ -655,7 +665,7 @@ router.get('/publications/media', async (req, res) => {
   }
 })
 
-router.post('/publications/media', upload.single('file'), async (req, res) => {
+router.post('/publications/media', authorizeUpload, upload.single('file'), async (req, res) => {
   try {
     setCorsHeaders(res)
     const { resolvePublicationRouteAuth } = await getPublicationRouteAuth()
@@ -695,7 +705,7 @@ router.delete('/publications/media', async (req, res) => {
     const { deletePublicationMedia } = await getPublicationMedia()
     const { PublicationApiError } = await getPublicationErrors()
 
-    await resolvePublicationRouteAuth(req, ['articles:write'], 'delete publication media')
+    await resolvePublicationRouteAuth(req, ['articles:delete'], 'delete publication media')
     const path = typeof req.body?.path === 'string' && req.body.path.trim()
       ? req.body.path.trim()
       : (typeof req.query?.path === 'string' ? req.query.path.trim() : '')
@@ -714,18 +724,18 @@ router.delete('/publications/media', async (req, res) => {
 router.get('/publications/tokens', async (req, res) => {
   try {
     setCorsHeaders(res)
-    const { assertPublicationAdminSession, createPublicationAdminAuthContext } = await getPublicationAdmin()
+    const { resolvePublicationRouteAuth } = await getPublicationRouteAuth()
     const { listPublicationTokenInventory } = await getPublicationTokenRegistry()
     const { hasPublicationTokenSecret, PUBLICATION_TOKEN_SCOPES } = await getPublicationTokens()
     const { listPublicationSkills, listPublicationConnectorHealth } = await getPublicationSkills()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
-    const user = await assertPublicationAdminSession('manage publication tokens')
+    const auth = await resolvePublicationRouteAuth(req, ['tokens:read'], 'manage publication tokens')
     const tokens = await listPublicationTokenInventory()
 
     await recordPublicationAuditEvent({
       action: 'audit.read',
-      auth: createPublicationAdminAuthContext(user.email),
+      auth,
       route: '/api/publications/tokens', method: 'GET',
       metadata: { inventoryCount: tokens.length },
     })
@@ -750,13 +760,12 @@ router.get('/publications/tokens', async (req, res) => {
 router.post('/publications/tokens', async (req, res) => {
   try {
     setCorsHeaders(res)
-    const { assertPublicationAdminSession, createPublicationAdminAuthContext } = await getPublicationAdmin()
+    const { resolvePublicationRouteAuth } = await getPublicationRouteAuth()
     const { createPublicationTokenInventoryRecord } = await getPublicationTokenRegistry()
     const { issuePublicationAccessToken } = await getPublicationTokens()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
-    const user = await assertPublicationAdminSession('create publication tokens')
-    const auth = createPublicationAdminAuthContext(user.email)
+    const auth = await resolvePublicationRouteAuth(req, ['tokens:write'], 'create publication tokens')
     const body = req.body || {}
     const issuedAt = new Date().toISOString()
     const expiresAt = body.expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
@@ -790,16 +799,16 @@ router.post('/publications/tokens', async (req, res) => {
 router.post('/publications/tokens/:tokenId/revoke', async (req, res) => {
   try {
     setCorsHeaders(res)
-    const { assertPublicationAdminSession, createPublicationAdminAuthContext } = await getPublicationAdmin()
+    const { resolvePublicationRouteAuth } = await getPublicationRouteAuth()
     const { revokePublicationTokenInventoryRecord } = await getPublicationTokenRegistry()
     const { recordPublicationAuditEvent } = await getPublicationAudit()
 
-    const user = await assertPublicationAdminSession('revoke publication tokens')
+    const auth = await resolvePublicationRouteAuth(req, ['tokens:write'], 'revoke publication tokens')
     const token = await revokePublicationTokenInventoryRecord(req.params.tokenId)
 
     await recordPublicationAuditEvent({
       action: 'tokens.revoke',
-      auth: createPublicationAdminAuthContext(user.email),
+      auth,
       route: '/api/publications/tokens/:tokenId/revoke', method: 'POST',
       metadata: { tokenId: token.id },
     })

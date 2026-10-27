@@ -1,8 +1,3 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import {
   buildPublicationDocumentIR,
   type PublicationDocumentIR,
@@ -14,8 +9,6 @@ import {
   assertPublicationSkillCapabilityEnabled,
   getPublicationSkillForCapability,
 } from './publication-skills.js'
-
-const execFileAsync = promisify(execFile)
 
 export type PublicationVerificationStatus = 'pass' | 'warn' | 'fail' | 'unavailable'
 
@@ -357,76 +350,14 @@ async function verifyLeanArtifacts(ir: PublicationDocumentIR): Promise<Publicati
     }
   }
 
-  const compiledArtifacts: Array<{ line: number; theorem?: string; status: 'checked' | 'skipped' | 'failed'; output?: string }> = []
-  const leanAvailable = await commandExists('lean')
-
-  for (const directive of leanDirectives) {
-    const code = directive.attributes.code?.trim() || ''
-    const theorem = directive.attributes.theorem?.trim() || undefined
-
-    if (!code) {
-      findings.push({
-        severity: 'warn',
-        code: 'lean_code_missing',
-        line: directive.line,
-        message: 'Lean/proof block is missing inline `code=` content.',
-      })
-      compiledArtifacts.push({ line: directive.line, theorem, status: 'skipped' })
-      continue
-    }
-
-    if (!leanAvailable) {
-      compiledArtifacts.push({
-        line: directive.line,
-        theorem,
-        status: 'skipped',
-        output: code,
-      })
-      continue
-    }
-
-    const compileResult = await compileLeanSnippet(code)
-    compiledArtifacts.push({
-      line: directive.line,
-      theorem,
-      status: compileResult.ok ? 'checked' : 'failed',
-      output: compileResult.output,
-    })
-
-    if (!compileResult.ok) {
-      findings.push({
-        severity: 'error',
-        code: 'lean_compile_failed',
-        line: directive.line,
-        message: `Lean reported an error: ${truncateText(compileResult.output, 180)}`,
-      })
-    }
-  }
-
-  if (!leanAvailable) {
-    findings.push({
-      severity: 'info',
-      code: 'lean_cli_unavailable',
-      message: 'Lean CLI is not installed in this environment, so proof blocks were analyzed but not compiled.',
-    })
-  }
-
-  return {
-    verifierId: 'lean',
-    label: 'Lean Verification',
-    status: findings.some((finding) => finding.severity === 'error')
-      ? 'fail'
-      : leanAvailable
-        ? 'pass'
-        : 'unavailable',
-    summary: leanAvailable
-      ? 'Lean proof artifacts were checked against the local Lean toolchain.'
-      : 'Lean proof artifacts were discovered, but the local Lean toolchain is unavailable.',
-    findings,
-    data: {
-      artifacts: compiledArtifacts,
-    },
-  }
+  // Native proof languages can perform IO. Never compile document input in the
+  // engine process; a timeout or an opt-in flag is not an isolation boundary.
+  const artifacts = leanDirectives.map(directive => {
+    if (!directive.attributes.code?.trim()) findings.push({ severity: 'warn', code: 'lean_code_missing', line: directive.line, message: 'Lean/proof block is missing inline `code=` content.' })
+    return { line: directive.line, theorem: directive.attributes.theorem, status: 'skipped' }
+  })
+  findings.push({ severity: 'info', code: 'lean_execution_isolated_worker_required', message: 'Proof artifacts were discovered but not compiled. Formal execution requires a separate isolated worker.' })
+  return { verifierId: 'lean', label: 'Lean Verification', status: 'unavailable', summary: 'Structural inspection only; engine-local proof execution is disabled.', findings, data: { artifacts } }
 }
 
 async function verifyJournalStructure(ir: PublicationDocumentIR): Promise<PublicationVerificationResult> {
@@ -620,41 +551,4 @@ function checkBalancedBrackets(source: string) {
   }
 
   return { ok: true, symbolLabel: '' }
-}
-
-async function commandExists(command: string) {
-  try {
-    await execFileAsync('which', [command])
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function compileLeanSnippet(code: string) {
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'publication-lean-'))
-  const filePath = path.join(tempDir, 'PublicationCheck.lean')
-
-  try {
-    await writeFile(filePath, code, 'utf8')
-    const result = await execFileAsync('lean', [filePath], { timeout: 15_000 })
-    return {
-      ok: true,
-      output: `${result.stdout}\n${result.stderr}`.trim(),
-    }
-  } catch (error) {
-    const output =
-      error && typeof error === 'object' && 'stderr' in error
-        ? String((error as { stderr?: string }).stderr ?? '')
-        : error instanceof Error
-          ? error.message
-          : 'Unknown Lean execution error.'
-
-    return {
-      ok: false,
-      output,
-    }
-  } finally {
-    await rm(tempDir, { recursive: true, force: true })
-  }
 }

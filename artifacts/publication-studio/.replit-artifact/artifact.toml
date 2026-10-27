@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Publication MCP Studio"
+title = "Publications"
 version = "1.0.0"
 id = "artifacts/publication-studio"
 router = "path"
@@ -18,13 +18,14 @@ localPort = 19344
 run = "pnpm --filter @workspace/publication-studio run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/publication-studio", "run", "build" ]
-publicDir = "artifacts/publication-studio/dist/public"
-serve = "static"
+build = [ "pnpm", "run", "build" ]
 
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
+[services.production.run]
+args = [ "node", "scripts/start-website.mjs" ]
+
+[services.production.run.env]
+NODE_ENV = "production"
+PORT = "19344"
 
 [services.env]
 PORT = "19344"

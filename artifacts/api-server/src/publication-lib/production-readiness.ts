@@ -44,11 +44,12 @@ export async function getProductionReadinessReport(): Promise<ProductionReadines
   const mediaStorageBucket = getPublicationMediaBucketName(process.env)
   const publicationSecret = process.env.PUBLICATION_API_SECRET?.trim() || ''
   const siteUrl =
+    process.env.PUBLICATION_SITE_URL?.trim() ||
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
     process.env.VERCEL_URL?.trim() ||
     ''
-  const openRouterKey = process.env.OPENROUTER_API_KEY?.trim() || process.env.NEXT_PUBLIC_OPENROUTER_API_KEY?.trim() || ''
+  const openRouterKey = process.env.OPENROUTER_API_KEY?.trim() || ''
 
   checks.push({
     key: 'platform_adapter',

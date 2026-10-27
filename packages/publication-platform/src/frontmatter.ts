@@ -98,6 +98,9 @@ export function formatFrontmatterBlock(frontmatter: PublicationFrontmatter) {
 }
 
 function stripWrappingQuotes(value: string) {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try { return JSON.parse(value) as string } catch { /* Accept legacy quoted values. */ }
+  }
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
     (value.startsWith("'") && value.endsWith("'"))

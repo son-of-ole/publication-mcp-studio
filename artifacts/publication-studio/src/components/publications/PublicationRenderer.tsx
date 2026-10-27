@@ -473,6 +473,8 @@ function renderDirectiveBlock(
         {attributes.src ? (
           <iframe
             src={attributes.src}
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
             title={label}
             loading="lazy"
             className="block w-full border-0 bg-white"
@@ -613,6 +615,8 @@ function renderDirectiveBlock(
         {attributes.src ? (
           <iframe
             src={attributes.src}
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
             title={label}
             loading="lazy"
             className="block w-full border-0 bg-white"
@@ -669,6 +673,8 @@ function renderDirectiveBlock(
           <iframe
             src={attributes.src}
             title={title ?? 'Formal proof'}
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
             loading="lazy"
             className="block w-full border-0 bg-white"
             style={{ height: `${Number.isNaN(height) ? 560 : height}px` }}

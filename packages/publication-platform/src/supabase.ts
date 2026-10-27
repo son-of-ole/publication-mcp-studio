@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import type {
   AdminAuthStore,
@@ -17,8 +18,38 @@ import type {
   TokenStore,
 } from './types'
 import { PublicationApiError } from './errors'
+import { PUBLICATION_MEDIA_LIMIT, readPublicationBytes } from './limits'
 
 const SUPABASE_MEDIA_BUCKET = 'article-assets'
+
+/** Operator-applied storage setup. Restrictive policy prevents old permissive policies granting draft access. */
+export const SUPABASE_PRIVATE_MEDIA_SQL = `
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('article-assets', 'article-assets', false, 8388608)
+ON CONFLICT (id) DO UPDATE SET public = false, file_size_limit = 8388608;
+DROP POLICY IF EXISTS publication_engine_private_assets ON storage.objects;
+CREATE POLICY publication_engine_private_assets ON storage.objects
+AS RESTRICTIVE FOR ALL TO anon, authenticated
+USING (bucket_id <> 'article-assets')
+WITH CHECK (bucket_id <> 'article-assets');
+`
+
+/** Apply after provisioning tables. All provider-client access goes through the engine. */
+export const SUPABASE_PRIVATE_ENGINE_SQL = `${SUPABASE_PRIVATE_MEDIA_SQL}
+DO $publication_private$
+DECLARE table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY['articles', 'publication_api_tokens', 'publication_api_audit_log', 'publication_article_versions', 'publication_media_assets']
+  LOOP
+    IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
+      EXECUTE format('DROP POLICY IF EXISTS publication_engine_only ON public.%I', table_name);
+      EXECUTE format('CREATE POLICY publication_engine_only ON public.%I AS RESTRICTIVE FOR ALL TO anon, authenticated USING (false) WITH CHECK (false)', table_name);
+    END IF;
+  END LOOP;
+END
+$publication_private$;
+`
 
 function asString(value: unknown) {
   return value === null || value === undefined ? '' : String(value)
@@ -302,6 +333,19 @@ const publicationStore: PublicationStore = {
     return normalizeArticleRow(data as Record<string, unknown>)
   },
 
+  async updateArticleIfMatches(expected, updates) {
+    const supabase = createSupabaseServiceClient()
+    let query = supabase.from('articles').update(articleUpdatesToColumns(updates))
+      .eq('id', expected.id).eq('title', expected.title).eq('slug', expected.slug)
+      .eq('content_markdown', expected.contentMarkdown).eq('status', expected.status)
+      .eq('metadata', JSON.stringify(expected.metadata))
+      .eq('tags', `{${expected.tags.map(tag => JSON.stringify(tag)).join(',')}}`)
+    query = expected.category === null ? query.is('category', null) : query.eq('category', expected.category)
+    const { data, error } = await query.select('*').maybeSingle()
+    if (error) throw new PublicationApiError(500, 'article_update_failed', error.message)
+    return data ? normalizeArticleRow(data as Record<string, unknown>) : null
+  },
+
   async deleteArticle(id: string) {
     const supabase = createSupabaseServiceClient()
     const { error } = await supabase.from('articles').delete().eq('id', id)
@@ -508,9 +552,29 @@ const auditStore: AuditStore = {
 }
 
 const mediaStore: MediaStore = {
+
+  async getMediaByPublicUrl(url) {
+    const match = /^\/__publication-assets\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)$/.exec(url)
+    if (!match) return null
+    const supabase = createSupabaseServiceClient()
+    const storagePath = `publications/${match[1]}/${match[2]}`
+    const { data, error } = await supabase.storage.from(SUPABASE_MEDIA_BUCKET).info(storagePath)
+    if (error || !data) return null
+    return { bucket: SUPABASE_MEDIA_BUCKET, path: storagePath, publicUrl: url, fileName: match[2], contentType: data.contentType || 'application/octet-stream', sizeBytes: data.size ?? null, kind: data.contentType?.startsWith('image/') ? 'image' : data.contentType === 'application/pdf' ? 'document' : 'other', articleSlug: match[1], embedMarkdown: `[${match[2]}](${url})` }
+  },
+
+  async readMedia(asset) {
+    const supabase = createSupabaseServiceClient()
+    await assertSupabasePrivateMediaBucket(supabase)
+    const { data, error } = await supabase.storage.from(SUPABASE_MEDIA_BUCKET).download(asset.path, {}, { signal: AbortSignal.timeout(10_000) }).asStream()
+    if (error || !data) throw new PublicationApiError(404, 'asset_not_found', 'Media not found.')
+    return readPublicationBytes(data, PUBLICATION_MEDIA_LIMIT)
+  },
+
   async uploadMedia(input: PublicationMediaUploadPayload) {
     const supabase = createSupabaseServiceClient()
-    const storagePath = `publications/${input.articleSlug}/${Date.now()}-${input.fileName}`
+    await assertSupabasePrivateMediaBucket(supabase)
+    const storagePath = `publications/${input.articleSlug}/${Date.now()}-${randomUUID()}-${input.fileName}`
 
     const { error } = await supabase.storage.from(SUPABASE_MEDIA_BUCKET).upload(storagePath, input.data, {
       cacheControl: '3600',
@@ -522,9 +586,7 @@ const mediaStore: MediaStore = {
       throw new PublicationApiError(500, 'media_upload_failed', error.message, error)
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(SUPABASE_MEDIA_BUCKET).getPublicUrl(storagePath)
+    const publicUrl = `/__publication-assets/${input.articleSlug}/${storagePath.split('/').pop()}`
 
     return {
       bucket: SUPABASE_MEDIA_BUCKET,
@@ -535,7 +597,7 @@ const mediaStore: MediaStore = {
       sizeBytes: input.data.byteLength,
       kind: input.kind,
       articleSlug: input.articleSlug,
-      embedMarkdown: input.embedMarkdown,
+      embedMarkdown: input.embedMarkdown.replaceAll(`/${input.articleSlug}/${input.fileName}`, publicUrl),
     } satisfies PublicationMediaAsset
   },
 
@@ -554,9 +616,7 @@ const mediaStore: MediaStore = {
       .filter((entry) => entry.name && entry.id)
       .map((entry) => {
         const assetPath = `publications/${articleSlug}/${entry.name}`
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from(SUPABASE_MEDIA_BUCKET).getPublicUrl(assetPath)
+        const publicUrl = `/__publication-assets/${articleSlug}/${entry.name}`
 
         return {
           bucket: SUPABASE_MEDIA_BUCKET,
@@ -586,6 +646,11 @@ const mediaStore: MediaStore = {
       throw new PublicationApiError(500, 'media_delete_failed', error.message, error)
     }
   },
+}
+
+async function assertSupabasePrivateMediaBucket(supabase: ReturnType<typeof createSupabaseServiceClient>) {
+  const { data, error } = await supabase.storage.getBucket(SUPABASE_MEDIA_BUCKET)
+  if (error || !data || data.public !== false) throw new PublicationApiError(503, 'private_bucket_required', 'Provision article-assets as a private Supabase bucket before uploading or reading files.')
 }
 
 export function createSupabasePublicationPlatform(
